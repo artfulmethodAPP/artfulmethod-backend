@@ -29,8 +29,12 @@ const createTaskSchema = z
     }
   });
 
+<<<<<<< HEAD
 const getAllTasksSchema = z.object({
   type: z.enum(["image", "question"]).optional(),
 });
 
 module.exports = { createTaskSchema, getAllTasksSchema };
+=======
+module.exports = { createTaskSchema };
+>>>>>>> 5c1ee93a6d068a3bff3b4184ef7f2d47e8e8cbda

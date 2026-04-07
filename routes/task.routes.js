@@ -3,8 +3,13 @@ const authenticate = require("../middlewares/authenticate.middleware");
 const isAdmin = require("../middlewares/isAdmin.middleware");
 const validate = require("../middlewares/validate");
 const upload = require("../middlewares/upload.middleware");
+<<<<<<< HEAD
 const { createTaskSchema, getAllTasksSchema } = require("../validations/task.validation");
 const { createTask, getAllTasks, deleteTask } = require("../controller/task.controller");
+=======
+const { createTaskSchema } = require("../validations/task.validation");
+const { createTask } = require("../controller/task.controller");
+>>>>>>> 5c1ee93a6d068a3bff3b4184ef7f2d47e8e8cbda
 
 const router = express.Router();
 
@@ -17,6 +22,7 @@ const router = express.Router();
 
 /**
  * @swagger
+<<<<<<< HEAD
  * /api/v1/tasks/{id}:
  *   delete:
  *     summary: Delete a task
@@ -123,6 +129,8 @@ router.get("/", authenticate, validate(getAllTasksSchema, "query"), getAllTasks)
 
 /**
  * @swagger
+=======
+>>>>>>> 5c1ee93a6d068a3bff3b4184ef7f2d47e8e8cbda
  * /api/v1/tasks:
  *   post:
  *     summary: Create a Task (Supports both image and question tasks)
@@ -183,7 +191,11 @@ router.post(
   "/",
   authenticate,
   isAdmin,
+<<<<<<< HEAD
   upload.single("image"), 
+=======
+  upload.single("image"), // Multer handles multipart file upload
+>>>>>>> 5c1ee93a6d068a3bff3b4184ef7f2d47e8e8cbda
   validate(createTaskSchema),
   createTask
 );
