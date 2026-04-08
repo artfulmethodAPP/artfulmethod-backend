@@ -13,11 +13,7 @@ const createTask = async (data) => {
         type,
         user_id: parseInt(user_id, 10),
       },
-<<<<<<< HEAD
       { transaction },
-=======
-      { transaction }
->>>>>>> 5c1ee93a6d068a3bff3b4184ef7f2d47e8e8cbda
     );
 
     // Depending on type, create associated entry
@@ -30,48 +26,29 @@ const createTask = async (data) => {
           task_id: task.id,
           image_url,
         },
-<<<<<<< HEAD
         { transaction },
-=======
-        { transaction }
->>>>>>> 5c1ee93a6d068a3bff3b4184ef7f2d47e8e8cbda
       );
     } else if (type === "question") {
       if (!questions) {
         throw new Error("Missing questions field for question task.");
       }
 
-<<<<<<< HEAD
       const parsedQuestions =
         typeof questions === "string" ? JSON.parse(questions) : questions;
-=======
-      const parsedQuestions = typeof questions === "string" ? JSON.parse(questions) : questions;
->>>>>>> 5c1ee93a6d068a3bff3b4184ef7f2d47e8e8cbda
 
       await TaskQuestion.create(
         {
           task_id: task.id,
           questions: parsedQuestions,
         },
-<<<<<<< HEAD
         { transaction },
-=======
-        { transaction }
->>>>>>> 5c1ee93a6d068a3bff3b4184ef7f2d47e8e8cbda
       );
     } else {
       throw new Error("Invalid task type.");
     }
 
     const createdTask = await Task.findByPk(task.id, {
-<<<<<<< HEAD
       include: [{ model: TaskMedia }, { model: TaskQuestion }],
-=======
-      include: [
-        { model: TaskMedia },
-        { model: TaskQuestion },
-      ],
->>>>>>> 5c1ee93a6d068a3bff3b4184ef7f2d47e8e8cbda
       transaction,
     });
 
@@ -86,7 +63,6 @@ const createTask = async (data) => {
   }
 };
 
-<<<<<<< HEAD
 const getAllTasks = async (filter = {}) => {
   const { type, is_active, isAdmin } = filter;
   const where = {};
@@ -143,6 +119,3 @@ const deleteTask = async (id) => {
 };
 
 module.exports = { createTask, getAllTasks, deleteTask };
-=======
-module.exports = { createTask };
->>>>>>> 5c1ee93a6d068a3bff3b4184ef7f2d47e8e8cbda

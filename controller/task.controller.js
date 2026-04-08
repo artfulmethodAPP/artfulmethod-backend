@@ -38,7 +38,6 @@ const createTask = async (req, res) => {
   }
 };
 
-<<<<<<< HEAD
 const getAllTasks = async (req, res) => {
   try {
     const { type } = req.query;
@@ -95,6 +94,3 @@ const deleteTask = async (req, res) => {
 };
 
 module.exports = { createTask, getAllTasks, deleteTask };
-=======
-module.exports = { createTask };
->>>>>>> 5c1ee93a6d068a3bff3b4184ef7f2d47e8e8cbda
