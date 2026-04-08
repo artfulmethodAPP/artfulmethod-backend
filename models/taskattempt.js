@@ -23,8 +23,11 @@ module.exports = (sequelize, DataTypes) => {
   }, {
     tableName: 'Task_Attempts',
     paranoid: true,
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
     deletedAt: 'deleted_at',
-    timestamps: true
+    timestamps: true,
+    underscored: true
   });
 
   TaskAttempt.associate = (models) => {

@@ -18,7 +18,10 @@ module.exports = (sequelize, DataTypes) => {
     }
   }, {
     tableName: 'Task_Questions',
-    timestamps: true
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    timestamps: true,
+    underscored: true
   });
 
   TaskQuestion.associate = (models) => {

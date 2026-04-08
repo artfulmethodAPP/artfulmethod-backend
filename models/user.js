@@ -43,11 +43,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.BOOLEAN,
         defaultValue: false,
       },
-      is_deleted: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: false,
-      },
-      deletedAt: {
+      deleted_at: {
         type: DataTypes.DATE,
         allowNull: true,
       },
@@ -59,8 +55,11 @@ module.exports = (sequelize, DataTypes) => {
     {
       tableName: "Users",
       paranoid: true,
-      deletedAt: "deletedAt",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
+      deletedAt: "deleted_at",
       timestamps: true,
+      underscored: true,
     },
   );
 

@@ -28,19 +28,18 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       defaultValue: true
     },
-    is_deleted: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false
-    },
-    deletedAt: {
+    deleted_at: {
       type: DataTypes.DATE,
       allowNull: true
     }
   }, {
     tableName: 'Tasks',
     paranoid: true,
-    deletedAt: 'deletedAt',
-    timestamps: true
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    deletedAt: 'deleted_at',
+    timestamps: true,
+    underscored: true
   });
 
   Task.associate = (models) => {

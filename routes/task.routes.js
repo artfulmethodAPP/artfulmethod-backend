@@ -3,8 +3,18 @@ const authenticate = require("../middlewares/authenticate.middleware");
 const isAdmin = require("../middlewares/isAdmin.middleware");
 const validate = require("../middlewares/validate");
 const upload = require("../middlewares/upload.middleware");
-const { createTaskSchema, getAllTasksSchema } = require("../validations/task.validation");
-const { createTask, getAllTasks, deleteTask } = require("../controller/task.controller");
+const {
+  createTaskSchema,
+  updateTaskSchema,
+  getAllTasksSchema,
+  taskParamsSchema,
+} = require("../validations/task.validation");
+const {
+  createTask,
+  updateTask,
+  getAllTasks,
+  deleteTask,
+} = require("../controller/task.controller");
 
 const router = express.Router();
 
@@ -18,6 +28,78 @@ const router = express.Router();
 /**
  * @swagger
  * /api/v1/tasks/{id}:
+ *   put:
+ *     summary: Edit a task
+ *     description: |
+ *       Partially update an existing task. Admin only.
+ *       - To keep the current type, send only the fields you want to change.
+ *       - To change the task to `image`, upload a new file in the `image` field.
+ *       - To change the task to `question`, send `questions` as a JSON object string.
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The task ID
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 example: "Updated task title"
+ *               description:
+ *                 type: string
+ *                 example: "Updated task description"
+ *               type:
+ *                 type: string
+ *                 enum: [image, question]
+ *                 example: "question"
+ *               is_active:
+ *                 type: boolean
+ *                 example: true
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Required when changing a task to `image`.
+ *               questions:
+ *                 type: string
+ *                 description: JSON object string for question tasks.
+ *                 example: '{"1":"What do you notice first?","2":"Why did you choose that answer?"}'
+ *     responses:
+ *       200:
+ *         description: Task updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Task updated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     task:
+ *                       type: object
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Access denied (Admin only)
+ *       404:
+ *         description: Task not found
  *   delete:
  *     summary: Delete a task
  *     description: Perform a soft delete on a task. (Admin only)
@@ -54,10 +136,7 @@ const router = express.Router();
  *                     is_active:
  *                       type: boolean
  *                       example: false
- *                     is_deleted:
- *                       type: boolean
- *                       example: true
- *                     deletedAt:
+ *                     deleted_at:
  *                       type: string
  *                       format: date-time
  *                       example: "2026-04-03T12:30:00.000Z"
@@ -79,7 +158,33 @@ const router = express.Router();
  *       401:
  *         description: Unauthorized
  */
-router.delete("/:id", authenticate, isAdmin, deleteTask);
+router.delete(
+  "/:id",
+  authenticate,
+  isAdmin,
+  validate(taskParamsSchema, "params"),
+  deleteTask,
+);
+
+router.put(
+  "/:id",
+  authenticate,
+  isAdmin,
+  validate(taskParamsSchema, "params"),
+  upload.single("image"),
+  validate(updateTaskSchema),
+  updateTask,
+);
+
+router.patch(
+  "/:id",
+  authenticate,
+  isAdmin,
+  validate(taskParamsSchema, "params"),
+  upload.single("image"),
+  validate(updateTaskSchema),
+  updateTask,
+);
 
 /**
  * @swagger

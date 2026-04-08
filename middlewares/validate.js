@@ -1,3 +1,5 @@
+const AppError = require("../utils/app-error");
+
 const validate =
   (schema, source = "body") =>
   (req, res, next) => {
@@ -6,11 +8,13 @@ const validate =
         if (req.body.questions === "" || req.body.questions === null) {
           delete req.body.questions;
         } else if (Array.isArray(req.body.questions)) {
-          return res.status(400).json({
-            success: false,
-            message:
+          return next(
+            new AppError(
               "questions must be an object like {\"1\":\"hello q1\",\"2\":\"hello q2\"}",
-          });
+              400,
+              "VALIDATION_ERROR",
+            ),
+          );
         } else if (
           typeof req.body.questions === "object" &&
           req.body.questions !== null
@@ -46,38 +50,46 @@ const validate =
                     .filter(([, question]) => question !== ""),
                 );
               } else {
-                return res.status(400).json({
-                  success: false,
-                  message:
+                return next(
+                  new AppError(
                     "questions must be an object like {\"1\":\"hello q1\",\"2\":\"hello q2\"}",
-                });
+                    400,
+                    "VALIDATION_ERROR",
+                  ),
+                );
               }
             } catch {
-              return res.status(400).json({
-                success: false,
-                message: "questions must be a valid JSON object string",
-              });
+              return next(
+                new AppError(
+                  "questions must be a valid JSON object string",
+                  400,
+                  "VALIDATION_ERROR",
+                ),
+              );
             }
           }
         }
       }
 
-      const dataToValidate = source === "body" ? req.body : req.query;
+      const dataToValidate =
+        source === "body"
+          ? req.body
+          : source === "query"
+            ? req.query
+            : req.params;
       const parsed = schema.parse(dataToValidate);
 
       if (source === "body") {
         req.body = parsed;
-      } else {
+      } else if (source === "query") {
         req.query = parsed;
+      } else {
+        req.params = parsed;
       }
 
       next();
     } catch (error) {
-      return res.status(400).json({
-        success: false,
-        message: error.errors?.[0]?.message || "Validation failed",
-        errors: error.errors,
-      });
+      return next(error);
     }
   };
 

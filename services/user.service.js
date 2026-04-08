@@ -1,6 +1,7 @@
 const { User, RefreshToken } = require("../models");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const AppError = require("../utils/app-error");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
@@ -21,7 +22,7 @@ const register = async ({ name, email, password, gender }) => {
 
   if (existingUser) {
     if (existingUser.is_verified) {
-      throw new Error("User already exists");
+      throw new AppError("User already exists", 409, "CONFLICT");
     }
     // await existingUser.destroy({ force: true });
   }
@@ -48,25 +49,25 @@ const register = async ({ name, email, password, gender }) => {
     email: user.email,
     role: user.role,
     gender: user.gender,
-    createdAt: user.createdAt,
+    created_at: user.created_at,
   };
 };
 
 const verifyOTP = async ({ email, otp_code }) => {
   const user = await User.findOne({ where: { email } });
 
-  if (!user) throw new Error("User not found");
+  if (!user) throw new AppError("User not found", 404, "NOT_FOUND");
 
   if (user.is_verified) {
-    throw new Error("User already verified");
+    throw new AppError("User already verified", 409, "CONFLICT");
   }
 
   if (user.otp_code !== otp_code) {
-    throw new Error("Invalid OTP");
+    throw new AppError("Invalid OTP", 400, "VALIDATION_ERROR");
   }
 
   if (new Date() > new Date(user.otp_expires_at)) {
-    throw new Error("OTP expired");
+    throw new AppError("OTP expired", 400, "VALIDATION_ERROR");
   }
 
   await user.update({
@@ -86,13 +87,13 @@ const login = async ({ email, password }) => {
   const user = await User.findOne({ where: { email } });
 
   if (!user) {
-    throw new Error("Invalid email or password");
+    throw new AppError("Invalid email or password", 401, "UNAUTHORIZED");
   }
 
   const isPasswordMatch = await bcrypt.compare(password, user.password);
 
   if (!isPasswordMatch) {
-    throw new Error("Invalid email or password");
+    throw new AppError("Invalid email or password", 401, "UNAUTHORIZED");
   }
 
   if (!user.is_verified) {
@@ -105,7 +106,11 @@ const login = async ({ email, password }) => {
     });
 
     await sendOTPEmail(email, otp_code,user.id);
-    throw new Error("Please verify your email first. A new OTP has been sent to your email.");
+    throw new AppError(
+      "Please verify your email first. A new OTP has been sent to your email.",
+      403,
+      "FORBIDDEN",
+    );
   }
 
   const tokens = await generateAuthTokens(user);
@@ -126,11 +131,11 @@ const forgotPassword = async (email) => {
   const user = await User.findOne({ where: { email } });
 
   if (!user) {
-    throw new Error("User not found");
+    throw new AppError("User not found", 404, "NOT_FOUND");
   }
 
   if (!user.is_verified) {
-    throw new Error("Please verify your email first");
+    throw new AppError("Please verify your email first", 403, "FORBIDDEN");
   }
 
   const otp_code = generateOTP();
@@ -150,15 +155,15 @@ const resetPassword = async ({ email, otp_code, newPassword }) => {
   const user = await User.findOne({ where: { email } });
 
   if (!user) {
-    throw new Error("User not found");
+    throw new AppError("User not found", 404, "NOT_FOUND");
   }
 
   if (user.otp_code !== otp_code) {
-    throw new Error("Invalid OTP");
+    throw new AppError("Invalid OTP", 400, "VALIDATION_ERROR");
   }
 
   if (new Date() > new Date(user.otp_expires_at)) {
-    throw new Error("OTP expired");
+    throw new AppError("OTP expired", 400, "VALIDATION_ERROR");
   }
 
   const hashedPassword = await bcrypt.hash(newPassword, 10);
@@ -211,13 +216,17 @@ const refreshAuth = async (refreshToken) => {
     });
 
     if (!refreshTokenDoc) {
-      throw new Error("Invalid or revoked refresh token");
+      throw new AppError(
+        "Invalid or revoked refresh token",
+        401,
+        "UNAUTHORIZED",
+      );
     }
 
     const user = await User.findByPk(payload.id);
 
     if (!user) {
-      throw new Error("User not found");
+      throw new AppError("User not found", 404, "NOT_FOUND");
     }
 
     // revoke old token
@@ -226,7 +235,10 @@ const refreshAuth = async (refreshToken) => {
 
     return generateAuthTokens(user);
   } catch (error) {
-    throw new Error("Invalid or revoked refresh token");
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError("Invalid or revoked refresh token", 401, "UNAUTHORIZED");
   }
 };
 
@@ -240,7 +252,11 @@ const logout = async (refreshToken) => {
   });
 
   if (!refreshTokenDoc) {
-    throw new Error("Refresh token not found or already revoked");
+    throw new AppError(
+      "Refresh token not found or already revoked",
+      404,
+      "NOT_FOUND",
+    );
   }
 
   refreshTokenDoc.is_revoked = true;

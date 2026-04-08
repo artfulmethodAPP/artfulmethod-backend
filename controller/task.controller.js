@@ -1,96 +1,107 @@
 const TaskService = require("../services/task.service");
+const asyncHandler = require("../utils/async-handler");
+const { sendSuccess } = require("../utils/api-response");
+const AppError = require("../utils/app-error");
 
-const createTask = async (req, res) => {
-  try {
-    const { type } = req.body;
-    let image_url = null;
+const createTask = asyncHandler(async (req, res) => {
+  const { type } = req.body;
+  let image_url = null;
 
-    if (type === "image") {
-      if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          message: "Image file is required for type 'image'",
-        });
-      }
-      const host = req.get("host");
-      const protocol = req.protocol;
-      image_url = `${protocol}://${host}/uploads/tasks/${req.file.filename}`;
+  if (type === "image") {
+    if (!req.file) {
+      throw new AppError(
+        "Image file is required for type 'image'",
+        400,
+        "VALIDATION_ERROR",
+      );
     }
-
-    const taskData = {
-      ...req.body,
-      user_id: req.user.id,
-      image_url: type === "image" ? image_url : null,
-    };
-
-    const task = await TaskService.createTask(taskData);
-
-    res.status(201).json({
-      success: true,
-      message: "Task created successfully",
-      task,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
+    const host = req.get("host");
+    const protocol = req.protocol;
+    image_url = `${protocol}://${host}/uploads/tasks/${req.file.filename}`;
   }
-};
 
-const getAllTasks = async (req, res) => {
-  try {
-    const { type } = req.query;
-    const isAdmin = req.user.role === "admin";
+  const taskData = {
+    ...req.body,
+    user_id: req.user.id,
+    image_url: type === "image" ? image_url : null,
+  };
 
-    const filter = {};
-    if (type) filter.type = type;
+  const task = await TaskService.createTask(taskData);
 
-    if (!isAdmin) {
-      // Non-admins only see active tasks
-      filter.is_active = true;
-    }
-    filter.isAdmin = isAdmin;
+  return sendSuccess(res, {
+    statusCode: 201,
+    message: "Task created successfully",
+    data: { task },
+  });
+});
 
-    const tasks = await TaskService.getAllTasks(filter);
+const updateTask = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const nextType = req.body.type;
+  let image_url;
+  const hasBodyFields = Object.keys(req.body).length > 0;
 
-    res.status(200).json({
-      success: true,
-      message: "Tasks retrieved successfully",
-      tasks,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+  if (req.file) {
+    const host = req.get("host");
+    const protocol = req.protocol;
+    image_url = `${protocol}://${host}/uploads/tasks/${req.file.filename}`;
   }
-};
 
-const deleteTask = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const task = await TaskService.deleteTask(id);
-
-    res.status(200).json({
-      success: true,
-      message: "Task deleted successfully",
-      task,
-    });
-  } catch (error) {
-    if (error.message === "Task not found") {
-      return res.status(404).json({
-        success: false,
-        message: error.message,
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+  if (!hasBodyFields && !req.file) {
+    throw new AppError(
+      "At least one field is required to update task",
+      400,
+      "VALIDATION_ERROR",
+    );
   }
-};
 
-module.exports = { createTask, getAllTasks, deleteTask };
+  if (nextType === "question" && req.file) {
+    throw new AppError(
+      "Image file is not allowed for question type task",
+      400,
+      "VALIDATION_ERROR",
+    );
+  }
+
+  const task = await TaskService.updateTask(id, {
+    ...req.body,
+    image_url,
+  });
+
+  return sendSuccess(res, {
+    message: "Task updated successfully",
+    data: { task },
+  });
+});
+
+const getAllTasks = asyncHandler(async (req, res) => {
+  const { type } = req.query;
+  const isAdmin = req.user.role === "admin";
+
+  const filter = {};
+  if (type) filter.type = type;
+
+  if (!isAdmin) {
+    filter.is_active = true;
+  }
+  filter.isAdmin = isAdmin;
+
+  const tasks = await TaskService.getAllTasks(filter);
+
+  return sendSuccess(res, {
+    message: "Tasks retrieved successfully",
+    data: { tasks },
+  });
+});
+
+const deleteTask = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const task = await TaskService.deleteTask(id);
+
+  return sendSuccess(res, {
+    message: "Task deleted successfully",
+    data: { task },
+  });
+});
+
+module.exports = { createTask, updateTask, getAllTasks, deleteTask };

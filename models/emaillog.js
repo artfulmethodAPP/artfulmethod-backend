@@ -45,6 +45,8 @@ module.exports = (sequelize, DataTypes) => {
     },
     {
       tableName: "Email_logs",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
       timestamps: true,
       underscored: true,
     },

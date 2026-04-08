@@ -1,7 +1,7 @@
 module.exports = {
   development: {
     username: "root",
-    password: "Password!",
+    password: "",
     database: "ai_questionnaire_platform",
     host: "127.0.0.1",
     dialect: "mysql",

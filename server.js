@@ -2,6 +2,8 @@ const express = require("express");
 const path = require("path");
 const setupSwagger = require("./swagger");
 const cors = require("cors");
+const AppError = require("./utils/app-error");
+const errorHandler = require("./middlewares/error-handler");
 
 const app = express();
 app.use(express.json());
@@ -24,16 +26,11 @@ setupSwagger(app);
 // ================================ routes =====================================
 app.use("/api/v1", require("./routes/index.route"));
 
-app.use((error, req, res, next) => {
-  if (!error) {
-    return next();
-  }
-
-  return res.status(400).json({
-    success: false,
-    message: error.message || "Request failed",
-  });
+app.use((req, res, next) => {
+  next(new AppError("Route not found", 404, "NOT_FOUND"));
 });
+
+app.use(errorHandler);
 
 // ================================ server testing ===============================
 app.listen(PORT, () => {

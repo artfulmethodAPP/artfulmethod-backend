@@ -16,9 +16,8 @@ module.exports = {
         password: hashedPassword,
         role: "admin",
         gender: "male",
-        is_deleted: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
       {
         id: 2,
@@ -27,9 +26,8 @@ module.exports = {
         password: hashedPassword,
         role: "user",
         gender: "male",
-        is_deleted: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
       {
         id: 3,
@@ -38,9 +36,8 @@ module.exports = {
         password: hashedPassword,
         role: "user",
         gender: "female",
-        is_deleted: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
     ]);
 
@@ -53,9 +50,8 @@ module.exports = {
         description: "Identify common objects in the provided images.",
         type: "image",
         is_active: true,
-        is_deleted: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
       {
         id: 2,
@@ -64,9 +60,8 @@ module.exports = {
         description: "Answer basic cognitive assessment questions.",
         type: "question",
         is_active: true,
-        is_deleted: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
       {
         id: 3,
@@ -75,9 +70,8 @@ module.exports = {
         description: "What emotion do you see in this face?",
         type: "image",
         is_active: true,
-        is_deleted: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
     ]);
 
@@ -87,27 +81,27 @@ module.exports = {
         id: 1,
         task_id: 1,
         image_url: "https://images.unsplash.com/photo-1550258114-68bc7e454823?q=80&w=1000",
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
       {
         id: 2,
         task_id: 1,
         image_url: "https://images.unsplash.com/photo-1503602642458-232111445657?q=80&w=1000",
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
       {
         id: 3,
         task_id: 3,
         image_url: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=1000",
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
     ]);
 
     // 4. Task_Question
-    await queryInterface.bulkInsert("Task_Question", [
+    await queryInterface.bulkInsert("Task_Questions", [
       {
         id: 1,
         task_id: 2,
@@ -116,8 +110,8 @@ module.exports = {
           2: "How are you feeling today?",
           3: "What is the date today?",
         }),
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
     ]);
 
@@ -127,33 +121,33 @@ module.exports = {
         id: 1,
         user_id: 2,
         task_id: 1,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
       {
         id: 2,
         user_id: 2,
         task_id: 2,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
     ]);
 
     // 6. Task_Media_Response
-    await queryInterface.bulkInsert("Task_Media_Response", [
+    await queryInterface.bulkInsert("Task_Media_Responses", [
       {
         id: 1,
         attempt_id: 1,
         voice_url: "https://example.com/audio/apple_response.wav",
         transcript_text: "This is an apple.",
         duration_sec: 5,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
     ]);
 
     // 7. Task_Question_Response
-    await queryInterface.bulkInsert("Task_Question_Response", [
+    await queryInterface.bulkInsert("Task_Question_Responses", [
       {
         id: 1,
         attempt_id: 2,
@@ -162,8 +156,8 @@ module.exports = {
           "How are you feeling today?": "I feel good.",
           "What is the date today?": "2026-03-30",
         }),
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
     ]);
 
@@ -174,8 +168,8 @@ module.exports = {
         attempt_id: 1,
         pdf_url: "https://example.com/reports/report1.pdf",
         ai_response_url_link: "https://ai.example.com/v1/reports/1",
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
     ]);
 
@@ -204,8 +198,8 @@ module.exports = {
         token: "some_refresh_token_string",
         is_revoked: false,
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
       },
     ]);
   },
@@ -214,10 +208,10 @@ module.exports = {
     await queryInterface.bulkDelete("Refresh_tokens", null, {});
     await queryInterface.bulkDelete("Email_logs", null, {});
     await queryInterface.bulkDelete("Ai_Reports", null, {});
-    await queryInterface.bulkDelete("Task_Question_Response", null, {});
-    await queryInterface.bulkDelete("Task_Media_Response", null, {});
+    await queryInterface.bulkDelete("Task_Question_Responses", null, {});
+    await queryInterface.bulkDelete("Task_Media_Responses", null, {});
     await queryInterface.bulkDelete("Task_Attempts", null, {});
-    await queryInterface.bulkDelete("Task_Question", null, {});
+    await queryInterface.bulkDelete("Task_Questions", null, {});
     await queryInterface.bulkDelete("Task_Media", null, {});
     await queryInterface.bulkDelete("Tasks", null, {});
     await queryInterface.bulkDelete("Users", null, {});

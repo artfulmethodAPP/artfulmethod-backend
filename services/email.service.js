@@ -1,5 +1,6 @@
 const transporter = require("../config/email.config");
 const { EmailLog } = require("../models");
+const AppError = require("../utils/app-error");
 
 const sendOTPEmail = async (email, otp_code, user_id) => {
   const mailOptions = {
@@ -38,7 +39,7 @@ const sendOTPEmail = async (email, otp_code, user_id) => {
       sent_at: new Date(),
     });
 
-    throw new Error("Failed to send OTP email");
+    throw new AppError("Failed to send OTP email", 500, "EMAIL_SEND_FAILED");
   }
 };
 
@@ -80,7 +81,7 @@ const sendResetPasswordOTPEmail = async (email, otp_code, user_id) => {
       sent_at: new Date(),
     });
 
-    throw new Error("Failed to send OTP email");
+    throw new AppError("Failed to send OTP email", 500, "EMAIL_SEND_FAILED");
   }
 };
 
