@@ -67,6 +67,7 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.RefreshToken, { foreignKey: "user_id" });
     User.hasMany(models.Task, { foreignKey: "user_id" });
     User.hasMany(models.TaskAttempt, { foreignKey: "user_id" });
+    User.hasMany(models.AudioTranscript, { foreignKey: "user_id" });
     User.hasMany(models.EmailLog, { foreignKey: "user_id" });
     User.belongsTo(models.User, { as: "DeletedBy", foreignKey: "deleted_by" });
   };
