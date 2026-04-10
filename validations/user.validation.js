@@ -4,11 +4,6 @@ const { z } = require("zod");
 // Register Schema
 // =====================
 const registerSchema = z.object({
-  name: z
-    .string({ error: "Name is required" })
-    .min(3, "Name must be at least 3 characters")
-    .max(100),
-
   email: z
     .string({ error: "Email is required" })
     .email("Invalid email format")
@@ -19,9 +14,19 @@ const registerSchema = z.object({
     .min(6, "Password must be at least 6 characters")
     .max(100),
 
-  gender: z.enum(["male", "female", "others"], {
-    error: "Gender is required",
-  }),
+  name: z
+    .string()
+    .min(3, "Name must be at least 3 characters")
+    .max(100)
+    .optional(),
+
+  dob: z.string().optional(),
+
+  gender: z.enum(["male", "female", "other"]).optional(),
+
+  goal: z.string().max(255).optional(),
+
+  source: z.string().max(255).optional(),
 });
 
 // =====================
@@ -95,6 +100,21 @@ const resetPasswordSchema = z.object({
 });
 
 // =====================
+// Update Profile Schema
+// =====================
+const updateProfileSchema = z
+  .object({
+    name: z.string().min(3, "Name must be at least 3 characters").max(100).optional(),
+    dob: z.string().optional(),
+    gender: z.enum(["male", "female", "other"]).optional(),
+    goal: z.string().max(255).optional(),
+    source: z.string().max(255).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "At least one field is required to update",
+  });
+
+// =====================
 // FINAL EXPORT
 // =====================
 module.exports = {
@@ -105,4 +125,5 @@ module.exports = {
   logoutSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  updateProfileSchema,
 };

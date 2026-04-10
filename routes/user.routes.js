@@ -9,9 +9,11 @@ const {
   verifyOtp,
   forgotPassword,
   resetPassword,
+  updateProfile,
 } = require("../controller/user.controller");
 
 const validate = require("../middlewares/validate");
+const authenticate = require("../middlewares/authenticate.middleware");
 
 const {
   registerSchema,
@@ -21,6 +23,7 @@ const {
   verifyOtpSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  updateProfileSchema,
 } = require("../validations/user.validation");
 
 /**
@@ -43,24 +46,32 @@ const {
  *           schema:
  *             type: object
  *             required:
- *               - name
  *               - email
  *               - password
- *               - gender
  *             properties:
- *               name:
- *                 type: string
- *                 example: John Doe
  *               email:
  *                 type: string
  *                 example: john@example.com
  *               password:
  *                 type: string
  *                 example: mypassword123
+ *               name:
+ *                 type: string
+ *                 example: John Doe
+ *               dob:
+ *                 type: string
+ *                 format: date
+ *                 example: "1995-06-15"
  *               gender:
  *                 type: string
- *                 enum: [male, female, others]
+ *                 enum: [male, female, other]
  *                 example: male
+ *               goal:
+ *                 type: string
+ *                 example: "Improve mental wellness"
+ *               source:
+ *                 type: string
+ *                 example: "Instagram"
  *     responses:
  *       201:
  *         description: User registered successfully
@@ -238,5 +249,48 @@ router.post("/forgot-password", validate(forgotPasswordSchema), forgotPassword);
  *         description: Invalid OTP / OTP expired / User not found
  */
 router.post("/reset-password", validate(resetPasswordSchema), resetPassword);
+
+/**
+ * @swagger
+ * /api/v1/auth/me:
+ *   patch:
+ *     summary: Update user profile
+ *     description: Update optional profile fields (name, dob, gender, goal, source). Requires a verified account.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: John Doe
+ *               dob:
+ *                 type: string
+ *                 format: date
+ *                 example: "1995-06-15"
+ *               gender:
+ *                 type: string
+ *                 enum: [male, female, other]
+ *                 example: male
+ *               goal:
+ *                 type: string
+ *                 example: "Improve mental wellness"
+ *               source:
+ *                 type: string
+ *                 example: "Instagram"
+ *     responses:
+ *       200:
+ *         description: Profile updated successfully
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ */
+router.patch("/me", authenticate, validate(updateProfileSchema), updateProfile);
 
 module.exports = router;

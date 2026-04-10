@@ -10,9 +10,10 @@ module.exports = (sequelize, DataTypes) => {
         primaryKey: true,
         type: DataTypes.INTEGER,
       },
-      name: {
-        type: DataTypes.STRING(100),
+      role: {
+        type: DataTypes.ENUM("user", "admin"),
         allowNull: false,
+        defaultValue: "user",
       },
       email: {
         type: DataTypes.STRING(100),
@@ -20,15 +21,27 @@ module.exports = (sequelize, DataTypes) => {
         unique: true,
       },
       password: {
-        type: DataTypes.STRING(100),
+        type: DataTypes.STRING,
         allowNull: false,
       },
-      role: {
-        type: DataTypes.ENUM("admin", "user"),
-        defaultValue: "user",
+      name: {
+        type: DataTypes.STRING(100),
+        allowNull: true,
+      },
+      dob: {
+        type: DataTypes.DATEONLY,
+        allowNull: true,
       },
       gender: {
-        type: DataTypes.ENUM("male", "female", "others"),
+        type: DataTypes.ENUM("male", "female", "other"),
+        allowNull: true,
+      },
+      goal: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      source: {
+        type: DataTypes.STRING,
         allowNull: true,
       },
       otp_code: {
@@ -41,23 +54,18 @@ module.exports = (sequelize, DataTypes) => {
       },
       is_verified: {
         type: DataTypes.BOOLEAN,
+        allowNull: false,
         defaultValue: false,
       },
       deleted_at: {
         type: DataTypes.DATE,
         allowNull: true,
       },
-      deleted_by: {
-        type: DataTypes.INTEGER,
-        allowNull: true,
-      },
     },
     {
       tableName: "Users",
-      paranoid: true,
       createdAt: "created_at",
       updatedAt: "updated_at",
-      deletedAt: "deleted_at",
       timestamps: true,
       underscored: true,
     },
@@ -69,7 +77,6 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.TaskAttempt, { foreignKey: "user_id" });
     User.hasMany(models.AudioTranscript, { foreignKey: "user_id" });
     User.hasMany(models.EmailLog, { foreignKey: "user_id" });
-    User.belongsTo(models.User, { as: "DeletedBy", foreignKey: "deleted_by" });
   };
 
   return User;

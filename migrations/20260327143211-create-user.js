@@ -9,12 +9,13 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.INTEGER,
       },
-      name: {
-        type: Sequelize.STRING,
+      role: {
+        type: Sequelize.ENUM("user", "admin"),
         allowNull: false,
+        defaultValue: "user",
       },
       email: {
-        type: Sequelize.STRING,
+        type: Sequelize.STRING(100),
         allowNull: false,
         unique: true,
       },
@@ -22,15 +23,9 @@ module.exports = {
         type: Sequelize.STRING,
         allowNull: false,
       },
-      role: {
-        type: Sequelize.ENUM,
-        values: ["admin", "user"],
-        defaultValue: "user",
-      },
-      gender: {
-        type: Sequelize.ENUM,
-        values: ["male", "female", "other"],
-        allowNull: false,
+      name: {
+        type: Sequelize.STRING(100),
+        allowNull: true,
       },
       otp_code: {
         type: Sequelize.STRING(6),
@@ -42,7 +37,24 @@ module.exports = {
       },
       is_verified: {
         type: Sequelize.BOOLEAN,
+        allowNull: false,
         defaultValue: false,
+      },
+      dob: {
+        type: Sequelize.DATEONLY,
+        allowNull: true,
+      },
+      gender: {
+        type: Sequelize.ENUM("male", "female", "other"),
+        allowNull: true,
+      },
+      goal: {
+        type: Sequelize.STRING,
+        allowNull: true,
+      },
+      source: {
+        type: Sequelize.STRING,
+        allowNull: true,
       },
       created_at: {
         allowNull: false,
@@ -54,15 +66,7 @@ module.exports = {
       },
       deleted_at: {
         type: Sequelize.DATE,
-      },
-      deleted_by: {
-        type: Sequelize.INTEGER,
-        references: {
-          model: "Users",
-          key: "id",
-        },
-        onDelete: "SET NULL",
-        onUpdate: "CASCADE",
+        allowNull: true,
       },
     });
   },

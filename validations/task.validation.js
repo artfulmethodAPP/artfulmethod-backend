@@ -55,6 +55,12 @@ const getAllTasksSchema = z.object({
   type: z.enum(["image", "question"]).optional(),
 });
 
+const recentTaskSchema = z.object({
+  type: z.enum(["image", "question"], {
+    error: "Type must be image or question",
+  }),
+});
+
 const taskParamsSchema = z.object({
   id: z.coerce.number().int().positive("Task id must be a positive number"),
 });
@@ -63,5 +69,6 @@ module.exports = {
   createTaskSchema,
   updateTaskSchema,
   getAllTasksSchema,
+  recentTaskSchema,
   taskParamsSchema,
 };

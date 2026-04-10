@@ -60,6 +60,14 @@ const resetPassword = asyncHandler(async (req, res) => {
   });
 });
 
+const updateProfile = asyncHandler(async (req, res) => {
+  const user = await UserService.updateProfile(req.user.id, req.body);
+  return sendSuccess(res, {
+    message: "Profile updated successfully",
+    data: { user },
+  });
+});
+
 module.exports = {
   createUser,
   loginUser,
@@ -68,4 +76,5 @@ module.exports = {
   verifyOtp,
   forgotPassword,
   resetPassword,
+  updateProfile,
 };

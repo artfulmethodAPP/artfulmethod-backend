@@ -17,7 +17,7 @@ const generateOTP = () => {
 // =====================
 // Auth Functions
 // =====================
-const register = async ({ name, email, password, gender }) => {
+const register = async ({ email, password, name, dob, gender, goal, source }) => {
   const existingUser = await User.findOne({ where: { email } });
 
   if (existingUser) {
@@ -33,10 +33,13 @@ const register = async ({ name, email, password, gender }) => {
   const otp_expires_at = new Date(Date.now() + 5 * 60 * 1000);
 
   const user = await User.create({
-    name,
     email,
     password: hashedPassword,
-    gender,
+    name: name || null,
+    dob: dob || null,
+    gender: gender || null,
+    goal: goal || null,
+    source: source || null,
     otp_code,
     otp_expires_at,
   });
@@ -45,10 +48,8 @@ const register = async ({ name, email, password, gender }) => {
 
   return {
     id: user.id,
-    name: user.name,
     email: user.email,
-    role: user.role,
-    gender: user.gender,
+    name: user.name,
     created_at: user.created_at,
   };
 };
@@ -263,6 +264,33 @@ const logout = async (refreshToken) => {
   await refreshTokenDoc.save();
 };
 
+const updateProfile = async (userId, { name, dob, gender, goal, source }) => {
+  const user = await User.findByPk(userId);
+
+  if (!user) {
+    throw new AppError("User not found", 404, "NOT_FOUND");
+  }
+
+  const updates = {};
+  if (name !== undefined) updates.name = name;
+  if (dob !== undefined) updates.dob = dob;
+  if (gender !== undefined) updates.gender = gender;
+  if (goal !== undefined) updates.goal = goal;
+  if (source !== undefined) updates.source = source;
+
+  await user.update(updates);
+
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    dob: user.dob,
+    gender: user.gender,
+    goal: user.goal,
+    source: user.source,
+  };
+};
+
 // =====================
 // Export (FINAL FIX)
 // =====================
@@ -274,4 +302,5 @@ module.exports = {
   resetPassword,
   refreshAuth,
   logout,
+  updateProfile,
 };

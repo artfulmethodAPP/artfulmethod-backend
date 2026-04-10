@@ -94,6 +94,25 @@ const getAllTasks = asyncHandler(async (req, res) => {
   });
 });
 
+
+const getRecentTasks = asyncHandler(async (req, res) => {
+  const { type } = req.query;
+  const isAdmin = req.user.role === "admin";
+
+  const filter = { type };
+  if (!isAdmin) {
+    filter.is_active = true;
+  }
+  filter.isAdmin = isAdmin;
+
+  const task = await TaskService.getRecentTasks(filter);
+
+  return sendSuccess(res, {
+    message: "Recent task retrieved successfully",
+    data: { task },
+  });
+});
+
 const deleteTask = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const task = await TaskService.deleteTask(id);
@@ -104,4 +123,14 @@ const deleteTask = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { createTask, updateTask, getAllTasks, deleteTask };
+
+
+
+
+module.exports = {
+  createTask,
+  updateTask,
+  getAllTasks,
+  getRecentTasks,
+  deleteTask,
+};

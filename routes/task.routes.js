@@ -1,17 +1,19 @@
 const express = require("express");
 const authenticate = require("../middlewares/authenticate.middleware");
 const isAdmin = require("../middlewares/isAdmin.middleware");
-const validate = require("../middlewares/validate");
+const validate = require("../middlewares/validate")
 const upload = require("../middlewares/upload.middleware");
 const {
   createTaskSchema,
   updateTaskSchema,
   getAllTasksSchema,
+  recentTaskSchema,
   taskParamsSchema,
 } = require("../validations/task.validation");
 const {
   createTask,
   updateTask,
+  getRecentTasks,
   getAllTasks,
   deleteTask,
 } = require("../controller/task.controller");
@@ -184,6 +186,61 @@ router.patch(
   upload.single("image"),
   validate(updateTaskSchema),
   updateTask,
+);
+
+/**
+ * @swagger
+ * /api/v1/tasks/recent:
+ *   get:
+ *     summary: Get the most recent task by type
+ *     description: |
+ *       Retrieve the latest task for the selected type.
+ *       - Frontend must send `type=image` or `type=question` in query params.
+ *       - Regular users: Can only get the latest active task of that type.
+ *       - Admin users: Can get the latest task of that type, including inactive or soft-deleted tasks.
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [image, question]
+ *         description: Task type to fetch the latest task for
+ *     responses:
+ *       200:
+ *         description: Recent task retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Recent task retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     task:
+ *                       type: object
+ *                       nullable: true
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.get(
+  "/recent",
+  authenticate,
+  validate(recentTaskSchema, "query"),
+  getRecentTasks,
 );
 
 /**

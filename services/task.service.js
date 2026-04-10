@@ -94,6 +94,32 @@ const getAllTasks = async (filter = {}) => {
   return tasks;
 };
 
+
+const getRecentTasks = async (filter = {}) => {
+  const { type, is_active, isAdmin } = filter;
+
+  const where = {};
+
+  if (type) {
+    where.type = type;
+  }
+
+  if (is_active !== undefined) {
+    where.is_active = is_active;
+  }
+
+  const task = await Task.findOne({
+    where,
+    include: [{ model: TaskMedia }, { model: TaskQuestion }],
+    order: [["created_at", "DESC"]],
+    paranoid: !isAdmin, // include soft-deleted if admin
+  });
+
+  return task;
+};
+
+
+
 const deleteTask = async (id) => {
   const task = await Task.findByPk(id, { paranoid: false });
 
@@ -291,4 +317,4 @@ const updateTask = async (id, data) => {
   }
 };
 
-module.exports = { createTask, updateTask, getAllTasks, deleteTask };
+module.exports = { createTask, updateTask, getAllTasks, getRecentTasks, deleteTask };
