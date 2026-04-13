@@ -50,6 +50,8 @@ module.exports = {
       allowNull: false,
     });
 
+    
+
     await queryInterface.changeColumn("Users", "source", {
       type: Sequelize.STRING,
       allowNull: false,

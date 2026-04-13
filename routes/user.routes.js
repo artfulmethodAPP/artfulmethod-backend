@@ -69,9 +69,13 @@ const {
  *               goal:
  *                 type: string
  *                 example: "Improve mental wellness"
+ *               art_frequency:
+ *                 type: string
+ *                 example: "1-2 times a week"
  *               source:
  *                 type: string
  *                 example: "Instagram"
+ 
  *     responses:
  *       201:
  *         description: User registered successfully
@@ -280,9 +284,13 @@ router.post("/reset-password", validate(resetPasswordSchema), resetPassword);
  *               goal:
  *                 type: string
  *                 example: "Improve mental wellness"
+ *               art_frequency:
+ *                 type: string
+ *                 example: "1-2 times a week"
  *               source:
  *                 type: string
  *                 example: "Instagram"
+
  *     responses:
  *       200:
  *         description: Profile updated successfully

@@ -17,7 +17,7 @@ const generateOTP = () => {
 // =====================
 // Auth Functions
 // =====================
-const register = async ({ email, password, name, dob, gender, goal, source }) => {
+const register = async ({ email, password, name, dob, gender, goal, art_frequency, source }) => {
   const existingUser = await User.findOne({ where: { email } });
 
   if (existingUser) {
@@ -39,6 +39,7 @@ const register = async ({ email, password, name, dob, gender, goal, source }) =>
     dob: dob || null,
     gender: gender || null,
     goal: goal || null,
+    art_frequency: art_frequency || null,
     source: source || null,
     otp_code,
     otp_expires_at,
@@ -264,7 +265,7 @@ const logout = async (refreshToken) => {
   await refreshTokenDoc.save();
 };
 
-const updateProfile = async (userId, { name, dob, gender, goal, source }) => {
+const updateProfile = async (userId, { name, dob, gender, goal, art_frequency, source }) => {
   const user = await User.findByPk(userId);
 
   if (!user) {
@@ -276,6 +277,7 @@ const updateProfile = async (userId, { name, dob, gender, goal, source }) => {
   if (dob !== undefined) updates.dob = dob;
   if (gender !== undefined) updates.gender = gender;
   if (goal !== undefined) updates.goal = goal;
+  if (art_frequency !== undefined) updates.art_frequency = art_frequency;
   if (source !== undefined) updates.source = source;
 
   await user.update(updates);
@@ -287,6 +289,7 @@ const updateProfile = async (userId, { name, dob, gender, goal, source }) => {
     dob: user.dob,
     gender: user.gender,
     goal: user.goal,
+    art_frequency: user.art_frequency,
     source: user.source,
   };
 };

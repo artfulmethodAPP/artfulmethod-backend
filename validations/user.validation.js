@@ -26,7 +26,10 @@ const registerSchema = z.object({
 
   goal: z.string().max(255).optional(),
 
+  art_frequency: z.string().max(255).optional(),
+
   source: z.string().max(255).optional(),
+
 });
 
 // =====================
@@ -108,6 +111,7 @@ const updateProfileSchema = z
     dob: z.string().optional(),
     gender: z.enum(["male", "female", "other"]).optional(),
     goal: z.string().max(255).optional(),
+    art_frequency: z.string().max(255).optional(),
     source: z.string().max(255).optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
