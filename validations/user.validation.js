@@ -85,20 +85,11 @@ const forgotPasswordSchema = z.object({
 // Reset Password Schema
 // =====================
 const resetPasswordSchema = z.object({
-  email: z
-    .string({ error: "Email is required" })
-    .email("Invalid email format")
-    .max(100),
-
-  otp_code: z
-    .string({ error: "OTP is required" })
-    .min(1, "Invalid OTP")
-    .max(10, "Invalid OTP")
-    .regex(/^\d+$/, "Invalid OTP"),
+  token: z.string({ error: "Reset token is required" }).min(1, "Reset token is required"),
 
   newPassword: z
     .string({ error: "New password is required" })
-    .min(6, "Password must be at least 6 characters")
+    .min(8, "Password must be at least 8 characters")
     .max(100),
 });
 

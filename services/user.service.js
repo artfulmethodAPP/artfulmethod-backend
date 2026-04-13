@@ -5,7 +5,8 @@ const AppError = require("../utils/app-error");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
-const { sendOTPEmail, sendResetPasswordOTPEmail } = require("./email.service");
+const JWT_RESET_SECRET = process.env.JWT_RESET_SECRET || JWT_SECRET;
+const { sendOTPEmail, sendResetPasswordLinkEmail } = require("./email.service");
 
 // =====================
 // Helper Functions
@@ -17,7 +18,16 @@ const generateOTP = () => {
 // =====================
 // Auth Functions
 // =====================
-const register = async ({ email, password, name, dob, gender, goal, art_frequency, source }) => {
+const register = async ({
+  email,
+  password,
+  name,
+  dob,
+  gender,
+  goal,
+  art_frequency,
+  source,
+}) => {
   const existingUser = await User.findOne({ where: { email } });
 
   if (existingUser) {
@@ -41,7 +51,7 @@ const register = async ({ email, password, name, dob, gender, goal, art_frequenc
     goal: goal || null,
     art_frequency: art_frequency || null,
     source: source || null,
-    otp_code,
+    otp_code: otp_code,
     otp_expires_at,
   });
 
@@ -85,17 +95,21 @@ const verifyOTP = async ({ email, otp_code }) => {
   };
 };
 
-const login = async ({ email, password }) => {
+const login = async ({ email, password = "" }) => {
   const user = await User.findOne({ where: { email } });
 
   if (!user) {
-    throw new AppError("Invalid email or password", 401, "UNAUTHORIZED");
+    throw new AppError(
+      "We couldn’t find an account with this email",
+      401,
+      "UNAUTHORIZED",
+    );
   }
 
   const isPasswordMatch = await bcrypt.compare(password, user.password);
 
   if (!isPasswordMatch) {
-    throw new AppError("Invalid email or password", 401, "UNAUTHORIZED");
+    throw new AppError("Incorrect password", 401, "UNAUTHORIZED");
   }
 
   if (!user.is_verified) {
@@ -107,7 +121,7 @@ const login = async ({ email, password }) => {
       otp_expires_at,
     });
 
-    await sendOTPEmail(email, otp_code,user.id);
+    await sendOTPEmail(email, otp_code, user.id);
     throw new AppError(
       "Please verify your email first. A new OTP has been sent to your email.",
       403,
@@ -140,41 +154,70 @@ const forgotPassword = async (email) => {
     throw new AppError("Please verify your email first", 403, "FORBIDDEN");
   }
 
-  const otp_code = generateOTP();
-  const otp_expires_at = new Date(Date.now() + 5 * 60 * 1000);
+  // Revoke any existing reset tokens for this user
+  await RefreshToken.update(
+    { is_revoked: true },
+    { where: { user_id: user.id, token_type: "reset_password", is_revoked: false } },
+  );
 
-  await user.update({
-    otp_code,
-    otp_expires_at,
+  const resetToken = jwt.sign({ id: user.id }, JWT_RESET_SECRET, {
+    expiresIn: "1h",
   });
 
-  await sendResetPasswordOTPEmail(email, otp_code,user.id);
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-  return { message: "OTP sent to your email" };
+  await RefreshToken.create({
+    user_id: user.id,
+    token: resetToken,
+    token_type: "reset_password",
+    expires_at: expiresAt,
+  });
+
+  const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+
+  await sendResetPasswordLinkEmail(email, resetLink, user.id);
+
+  return { message: "Password reset link sent to your email" };
 };
 
-const resetPassword = async ({ email, otp_code, newPassword }) => {
-  const user = await User.findOne({ where: { email } });
+const resetPassword = async ({ token, newPassword }) => {
+  let payload;
+  try {
+    payload = jwt.verify(token, JWT_RESET_SECRET);
+  } catch {
+    throw new AppError("Invalid or expired reset link", 400, "VALIDATION_ERROR");
+  }
+
+  const tokenDoc = await RefreshToken.findOne({
+    where: {
+      token,
+      user_id: payload.id,
+      token_type: "reset_password",
+      is_revoked: false,
+    },
+  });
+
+  if (!tokenDoc) {
+    throw new AppError("Invalid or expired reset link", 400, "VALIDATION_ERROR");
+  }
+
+  if (new Date() > new Date(tokenDoc.expires_at)) {
+    throw new AppError("Reset link has expired", 400, "VALIDATION_ERROR");
+  }
+
+  const user = await User.findByPk(payload.id);
 
   if (!user) {
     throw new AppError("User not found", 404, "NOT_FOUND");
   }
 
-  if (user.otp_code !== otp_code) {
-    throw new AppError("Invalid OTP", 400, "VALIDATION_ERROR");
-  }
-
-  if (new Date() > new Date(user.otp_expires_at)) {
-    throw new AppError("OTP expired", 400, "VALIDATION_ERROR");
-  }
-
   const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-  await user.update({
-    password: hashedPassword,
-    otp_code: null,
-    otp_expires_at: null,
-  });
+  await user.update({ password: hashedPassword });
+
+  // Revoke the used token
+  tokenDoc.is_revoked = true;
+  await tokenDoc.save();
 
   return { message: "Password reset successful" };
 };
@@ -265,7 +308,10 @@ const logout = async (refreshToken) => {
   await refreshTokenDoc.save();
 };
 
-const updateProfile = async (userId, { name, dob, gender, goal, art_frequency, source }) => {
+const updateProfile = async (
+  userId,
+  { name, dob, gender, goal, art_frequency, source },
+) => {
   const user = await User.findByPk(userId);
 
   if (!user) {

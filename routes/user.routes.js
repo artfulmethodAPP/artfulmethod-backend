@@ -224,7 +224,7 @@ router.post("/forgot-password", validate(forgotPasswordSchema), forgotPassword);
  * @swagger
  * /api/v1/auth/reset-password:
  *   post:
- *     summary: Reset password using OTP
+ *     summary: Reset password using token from email link
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -233,16 +233,12 @@ router.post("/forgot-password", validate(forgotPasswordSchema), forgotPassword);
  *           schema:
  *             type: object
  *             required:
- *               - email
- *               - otp_code
+ *               - token
  *               - newPassword
  *             properties:
- *               email:
+ *               token:
  *                 type: string
- *                 example: john@example.com
- *               otp_code:
- *                 type: string
- *                 example: "123456"
+ *                 description: Reset token received via email link query param
  *               newPassword:
  *                 type: string
  *                 example: newpassword123
@@ -250,7 +246,7 @@ router.post("/forgot-password", validate(forgotPasswordSchema), forgotPassword);
  *       200:
  *         description: Password reset successful
  *       400:
- *         description: Invalid OTP / OTP expired / User not found
+ *         description: Invalid or expired reset link
  */
 router.post("/reset-password", validate(resetPasswordSchema), resetPassword);
 
