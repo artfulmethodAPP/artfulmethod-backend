@@ -181,7 +181,9 @@ jobs:
 
             # Run database migrations on the primary server
             if [ "${{ matrix.server.type }}" = "primary" ]; then
-              cd $ACTIVE_RELEASE_PATH && npx sequelize-cli db:migrate
+              cd $ACTIVE_RELEASE_PATH
+              export $(grep -v '^#' .env | xargs)
+              npx sequelize-cli db:migrate
             fi
 
   clean-up:
