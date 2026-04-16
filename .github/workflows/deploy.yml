@@ -1,0 +1,212 @@
+name: Artful Method Backend
+
+on:
+  push:
+    branches: [dev, main]
+
+jobs:
+  setup-env:
+    runs-on: ubuntu-latest
+    outputs:
+      env-name: ${{ steps.set-env.outputs.env-name }}
+    steps:
+      - id: set-env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            echo "env-name=dev" >> $GITHUB_OUTPUT
+          else
+            echo "env-name=main" >> $GITHUB_OUTPUT
+          fi
+
+  create-deployment-artifacts:
+    name: Create deployment artifacts
+    runs-on: ubuntu-latest
+    outputs:
+      deployment-matrix: ${{ steps.export-deployment-matrix.outputs.deployment-matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Create deployment artifact
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: tar -czf "${GITHUB_SHA}".tar.gz --exclude=*.git --exclude=node_modules *
+
+      - name: Store artifact for distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-build
+          path: ${{ github.sha }}.tar.gz
+
+      - name: Export deployment matrix
+        id: export-deployment-matrix
+        run: |
+          delimiter="$(openssl rand -hex 8)"
+          echo "deployment-matrix<<${delimiter}" >> $GITHUB_OUTPUT
+          cat ./deployment-config.json >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "${delimiter}" >> $GITHUB_OUTPUT
+
+  prepare-release-on-servers:
+    needs: [setup-env, create-deployment-artifacts]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        server: ${{ fromJson(needs.create-deployment-artifacts.outputs.deployment-matrix) }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-build
+
+      - name: Upload to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ matrix.server.ip }}
+          username: ${{ matrix.server.username }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ matrix.server.port }}
+          source: ${{ github.sha }}.tar.gz
+          target: ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}/artifacts
+
+      - name: Extract archive and create .env
+        uses: appleboy/ssh-action@master
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          ENV_FILE: ${{ needs.setup-env.outputs.env-name == 'dev' && secrets.DEV_ENV || secrets.MAIN_ENV }}
+        with:
+          host: ${{ matrix.server.ip }}
+          username: ${{ matrix.server.username }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ matrix.server.port }}
+          envs: GITHUB_SHA, ENV_FILE
+          script: |
+            mkdir -p ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}/releases/${GITHUB_SHA}
+            tar xzf ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}/artifacts/${GITHUB_SHA}.tar.gz -C ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}/releases/${GITHUB_SHA}
+
+            # Write .env from GitHub secret
+            echo "$ENV_FILE" > ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}/releases/${GITHUB_SHA}/.env
+
+  activate-release:
+    name: "${{ matrix.server.name }}: Activate release"
+    runs-on: ubuntu-latest
+    needs:
+      [
+        setup-env,
+        create-deployment-artifacts,
+        prepare-release-on-servers,
+      ]
+    strategy:
+      matrix:
+        server: ${{ fromJson(needs.create-deployment-artifacts.outputs.deployment-matrix) }}
+    steps:
+      - name: Activating release
+        uses: appleboy/ssh-action@master
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          RELEASE_PATH: ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}/releases/${{ github.sha }}
+          ACTIVE_RELEASE_PATH: ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}/current
+          BASE_PATH: ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}
+        with:
+          host: ${{ matrix.server.ip }}
+          username: ${{ matrix.server.username }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ matrix.server.port }}
+          envs: GITHUB_SHA, RELEASE_PATH, ACTIVE_RELEASE_PATH, BASE_PATH
+          script: |
+            # Link the new release
+            ln -s -n -f $RELEASE_PATH $ACTIVE_RELEASE_PATH
+
+            # Define the application name
+            APP_NAME="${{ needs.setup-env.outputs.env-name }}-artfulmethod-backend"
+
+            # Change to the new release directory
+            cd $ACTIVE_RELEASE_PATH
+
+            # Install dependencies
+            npm install
+
+            # Restart or start the application
+            if pm2 describe $APP_NAME > /dev/null 2>&1; then
+              echo "Application $APP_NAME is running, performing rolling update..."
+              pm2 stop $APP_NAME
+              pm2 delete $APP_NAME
+              pm2 start ecosystem.config.json --only $APP_NAME
+            else
+              echo "Application $APP_NAME is not running, starting it..."
+              pm2 start ecosystem.config.json --only $APP_NAME
+            fi
+
+            # Save the PM2 process list
+            pm2 save
+
+  run-after-hooks:
+    name: "${{ matrix.server.name }}: After hooks"
+    runs-on: ubuntu-latest
+    needs:
+      [
+        setup-env,
+        create-deployment-artifacts,
+        prepare-release-on-servers,
+        activate-release,
+      ]
+    strategy:
+      matrix:
+        server: ${{ fromJson(needs.create-deployment-artifacts.outputs.deployment-matrix) }}
+    steps:
+      - name: Run after hooks
+        uses: appleboy/ssh-action@master
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          RELEASE_PATH: ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}/releases/${{ github.sha }}
+          ACTIVE_RELEASE_PATH: ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}/current
+          BASE_PATH: ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}
+        with:
+          host: ${{ matrix.server.ip }}
+          username: ${{ matrix.server.username }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ matrix.server.port }}
+          envs: GITHUB_SHA, RELEASE_PATH, ACTIVE_RELEASE_PATH, BASE_PATH
+          script: |
+            echo "Running after hooks for ${{ needs.setup-env.outputs.env-name }}"
+
+            # Run database migrations on the primary server
+            if [ "${{ matrix.server.type }}" = "primary" ]; then
+              cd $ACTIVE_RELEASE_PATH && npx sequelize-cli db:migrate
+            fi
+
+  clean-up:
+    name: "${{ matrix.server.name }}: Clean up"
+    runs-on: ubuntu-latest
+    needs:
+      [
+        setup-env,
+        create-deployment-artifacts,
+        prepare-release-on-servers,
+        activate-release,
+        run-after-hooks,
+      ]
+    strategy:
+      matrix:
+        server: ${{ fromJson(needs.create-deployment-artifacts.outputs.deployment-matrix) }}
+    steps:
+      - name: Run clean up
+        uses: appleboy/ssh-action@master
+        env:
+          RELEASE_PATH: ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}/releases
+          ARTIFACTS_PATH: ${{ matrix.server.path }}/artfulmethod-backend/${{ needs.setup-env.outputs.env-name }}/artifacts
+        with:
+          host: ${{ matrix.server.ip }}
+          username: ${{ matrix.server.username }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ matrix.server.port }}
+          envs: RELEASE_PATH, ARTIFACTS_PATH
+          script: |
+            # Remove ALL old releases except the current one
+            cd $RELEASE_PATH && ls -t -1 | tail -n +2 | xargs rm -rf
+
+            # Remove ALL artifacts (no longer needed after deploy)
+            rm -rf $ARTIFACTS_PATH/*
