@@ -117,6 +117,9 @@ jobs:
           port: ${{ matrix.server.port }}
           envs: GITHUB_SHA, RELEASE_PATH, ACTIVE_RELEASE_PATH, BASE_PATH
           script: |
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
             # Link the new release
             ln -s -n -f $RELEASE_PATH $ACTIVE_RELEASE_PATH
 
@@ -171,6 +174,9 @@ jobs:
           port: ${{ matrix.server.port }}
           envs: GITHUB_SHA, RELEASE_PATH, ACTIVE_RELEASE_PATH, BASE_PATH
           script: |
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
             echo "Running after hooks for ${{ needs.setup-env.outputs.env-name }}"
 
             # Run database migrations on the primary server
