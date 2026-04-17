@@ -1,3 +1,7 @@
+const axios = require("axios");
+const FormData = require("form-data");
+const path = require("path");
+const AppError = require("../utils/app-error");
 const { AudioTranscript } = require("../models");
 
 const countWords = (text) => {
@@ -27,6 +31,34 @@ const saveTranscript = async ({ userId, text, duration, language, wordCount }) =
   return transcript;
 };
 
+const transcribeAudio = async ({ fileBuffer, originalname, mimetype }) => {
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey) {
+    throw new AppError("ElevenLabs API key is not configured", 500, "ELEVENLABS_NOT_CONFIGURED");
+  }
+
+  const formData = new FormData();
+  formData.append("file", fileBuffer, {
+    filename: originalname || `audio${path.extname(originalname || ".mp3")}`,
+    contentType: mimetype,
+  });
+  formData.append("model_id", "scribe_v1");
+
+  const response = await axios.post(
+    "https://api.elevenlabs.io/v1/speech-to-text",
+    formData,
+    {
+      headers: {
+        ...formData.getHeaders(),
+        "xi-api-key": apiKey,
+      },
+    },
+  );
+
+  return response.data;
+};
+
 module.exports = {
   saveTranscript,
+  transcribeAudio,
 };

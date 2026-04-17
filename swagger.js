@@ -11,11 +11,11 @@ const options = {
     },
     servers: [
       {
-        url: "https://roof-fame-reliable-routers.trycloudflare.com/",
+        url: "https://expires-ice-educational-ferry.trycloudflare.com",
         description: "Cloudflare Tunnel",
       },
       {
-        url: "http://localhost:3000",
+        url: "http://localhost:3001",
         description: "Development server",
       },
     ],

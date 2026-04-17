@@ -29,7 +29,6 @@ const register = async ({
   source,
 }) => {
   const existingUser = await User.findOne({ where: { email } });
-
   if (existingUser) {
     if (existingUser.is_verified) {
       throw new AppError("User already exists", 409, "CONFLICT");
