@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: "https://expires-ice-educational-ferry.trycloudflare.com",
+        url: "https://necessary-memory-chrome-forgot.trycloudflare.com",
         description: "Cloudflare Tunnel",
       },
       {

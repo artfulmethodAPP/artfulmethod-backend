@@ -1,0 +1,10 @@
+Analyze the following self-reported mental state and return ONLY a 2–4 word indicator:
+
+{{TRANSCRIBED_TEXT}}
+
+Example output format:
+
+"mild stress"
+"mental fatigue"
+"emotionally unstable"
+"stable but tired"
