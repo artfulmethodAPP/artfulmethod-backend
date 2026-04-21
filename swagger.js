@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: "https://necessary-memory-chrome-forgot.trycloudflare.com",
+        url: "https://parts-tough-threshold-detect.trycloudflare.com    ",
         description: "Cloudflare Tunnel",
       },
       {

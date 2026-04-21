@@ -102,8 +102,8 @@ router.post("/save", authenticate, validate(saveTranscriptSchema), saveTranscrip
  *       401:
  *         description: Unauthorized
  */
-// router.post("/audio", authenticate, audioUpload.single("audio"), transcribeAudio);
-router.post("/audio",authenticate, audioUpload.single("audio"), transcribeAudio);
+router.post("/audio", authenticate, audioUpload.single("audio"), transcribeAudio);
+// router.post("/audio", audioUpload.single("audio"), transcribeAudio);
 
 
 

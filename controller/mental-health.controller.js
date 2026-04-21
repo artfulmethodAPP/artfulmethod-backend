@@ -7,7 +7,7 @@ const analyzeText = asyncHandler(async (req, res) => {
   const { text } = req.body;
 
   if (!text || !text.trim()) {
-    throw new AppError("text is required", 400, "MISSING_TEXT");
+    throw new AppError("text is required", 400, "VALIDATION_ERROR");
   }
 
   const result = await MentalHealthService.analyzeMentalHealth({

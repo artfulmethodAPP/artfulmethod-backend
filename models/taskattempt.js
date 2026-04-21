@@ -34,7 +34,6 @@ module.exports = (sequelize, DataTypes) => {
     TaskAttempt.belongsTo(models.User, { foreignKey: 'user_id' });
     TaskAttempt.belongsTo(models.Task, { foreignKey: 'task_id' });
     TaskAttempt.hasMany(models.TaskMediaResponse, { foreignKey: 'attempt_id' });
-    TaskAttempt.hasMany(models.TaskQuestionsResponse, { foreignKey: 'attempt_id' });
     TaskAttempt.hasOne(models.AiReport, { foreignKey: 'attempt_id' });
   };
 

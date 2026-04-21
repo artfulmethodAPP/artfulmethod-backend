@@ -18,7 +18,7 @@ const saveTranscript = asyncHandler(async (req, res) => {
 
 const transcribeAudio = asyncHandler(async (req, res) => {
   if (!req.file) {
-    throw new AppError("Audio file is required", 400, "MISSING_AUDIO_FILE");
+    throw new AppError("Audio file is required", 400, "VALIDATION_ERROR");
   }
 
   const result = await TranscribeService.transcribeAudio({

@@ -10,7 +10,7 @@ const {
   forgotPassword,
   resetPassword,
   updateProfile,
-} = require("../controller/user.controller");
+} = require("../controller/auth.controller");
 
 const validate = require("../middlewares/validate");
 const authenticate = require("../middlewares/authenticate.middleware");
@@ -24,7 +24,7 @@ const {
   forgotPasswordSchema,
   resetPasswordSchema,
   updateProfileSchema,
-} = require("../validations/user.validation");
+} = require("../validations/auth.validation");
 
 /**
  * @swagger

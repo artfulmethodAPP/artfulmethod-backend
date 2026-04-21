@@ -1,10 +1,13 @@
-Analyze the following self-reported mental state and return ONLY a 2–4 word indicator:
+Analyze the emotional tone of the following self-reported text.
+Return ONLY a 2–4 word neutral descriptor of the person’s state.
+Do NOT make clinical diagnoses. Keep it general and observational.
 
+Text:
 {{TRANSCRIBED_TEXT}}
 
-Example output format:
+Example outputs:
 
 "mild stress"
-"mental fatigue"
-"emotionally unstable"
-"stable but tired"
+"mentally tired"
+"emotionally overwhelmed"
+"calm and stable"

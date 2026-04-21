@@ -74,11 +74,11 @@ const verifyOTP = async ({ email, otp_code }) => {
   }
 
   if (user.otp_code !== otp_code) {
-    throw new AppError("Invalid OTP", 400, "VALIDATION_ERROR");
+    throw new AppError("Invalid OTP", 422, "INVALID_OTP");
   }
 
   if (new Date() > new Date(user.otp_expires_at)) {
-    throw new AppError("OTP expired", 400, "VALIDATION_ERROR");
+    throw new AppError("OTP expired", 422, "OTP_EXPIRED");
   }
 
   await user.update({
@@ -156,7 +156,13 @@ const forgotPassword = async (email) => {
   // Revoke any existing reset tokens for this user
   await RefreshToken.update(
     { is_revoked: true },
-    { where: { user_id: user.id, token_type: "reset_password", is_revoked: false } },
+    {
+      where: {
+        user_id: user.id,
+        token_type: "reset_password",
+        is_revoked: false,
+      },
+    },
   );
 
   const resetToken = jwt.sign({ id: user.id }, JWT_RESET_SECRET, {
@@ -184,7 +190,11 @@ const resetPassword = async ({ token, newPassword }) => {
   try {
     payload = jwt.verify(token, JWT_RESET_SECRET);
   } catch {
-    throw new AppError("Invalid or expired reset link", 400, "VALIDATION_ERROR");
+    throw new AppError(
+      "Invalid or expired reset link",
+      401,
+      "UNAUTHORIZED",
+    );
   }
 
   const tokenDoc = await RefreshToken.findOne({
@@ -197,11 +207,15 @@ const resetPassword = async ({ token, newPassword }) => {
   });
 
   if (!tokenDoc) {
-    throw new AppError("Invalid or expired reset link", 400, "VALIDATION_ERROR");
+    throw new AppError(
+      "Invalid or expired reset link",
+      401,
+      "UNAUTHORIZED",
+    );
   }
 
   if (new Date() > new Date(tokenDoc.expires_at)) {
-    throw new AppError("Reset link has expired", 400, "VALIDATION_ERROR");
+    throw new AppError("Reset link has expired", 401, "UNAUTHORIZED");
   }
 
   const user = await User.findByPk(payload.id);
@@ -223,7 +237,7 @@ const resetPassword = async ({ token, newPassword }) => {
 
 const generateAuthTokens = async (user) => {
   const accessToken = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, {
-    expiresIn: "1h",
+    expiresIn: "15m",
   });
 
   const refreshToken = jwt.sign({ id: user.id }, JWT_REFRESH_SECRET, {
@@ -298,8 +312,8 @@ const logout = async (refreshToken) => {
   if (!refreshTokenDoc) {
     throw new AppError(
       "Refresh token not found or already revoked",
-      404,
-      "NOT_FOUND",
+      400,
+      "BAD_REQUEST",
     );
   }
 

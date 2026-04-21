@@ -33,10 +33,9 @@ const router = express.Router();
  *   put:
  *     summary: Edit a task
  *     description: |
- *       Partially update an existing task. Admin only.
- *       - To keep the current type, send only the fields you want to change.
- *       - To change the task to `image`, upload a new file in the `image` field.
- *       - To change the task to `question`, send `questions` as a JSON object string.
+ *       Partially update an existing image task. Admin only.
+ *       - Send only the fields you want to change.
+ *       - To update the image, upload a new file in the `image` field.
  *     tags: [Tasks]
  *     security:
  *       - bearerAuth: []
@@ -60,21 +59,13 @@ const router = express.Router();
  *               description:
  *                 type: string
  *                 example: "Updated task description"
- *               type:
- *                 type: string
- *                 enum: [image, question]
- *                 example: "question"
  *               is_active:
  *                 type: boolean
  *                 example: true
  *               image:
  *                 type: string
  *                 format: binary
- *                 description: Required when changing a task to `image`.
- *               questions:
- *                 type: string
- *                 description: JSON object string for question tasks.
- *                 example: '{"1":"What do you notice first?","2":"Why did you choose that answer?"}'
+ *                 description: New image file for the task.
  *     responses:
  *       200:
  *         description: Task updated successfully
@@ -192,12 +183,11 @@ router.patch(
  * @swagger
  * /api/v1/tasks/recent:
  *   get:
- *     summary: Get the most recent task by type
+ *     summary: Get the most recent image task
  *     description: |
- *       Retrieve the latest task for the selected type.
- *       - Frontend must send `type=image` or `type=question` in query params.
- *       - Regular users: Can only get the latest active task of that type.
- *       - Admin users: Can get the latest task of that type, including inactive or soft-deleted tasks.
+ *       Retrieve the latest image task.
+ *       - Regular users: Can only get the latest active task.
+ *       - Admin users: Can get the latest task, including inactive or soft-deleted tasks.
  *     tags: [Tasks]
  *     security:
  *       - bearerAuth: []
@@ -207,8 +197,8 @@ router.patch(
  *         required: true
  *         schema:
  *           type: string
- *           enum: [image, question]
- *         description: Task type to fetch the latest task for
+ *           enum: [image]
+ *         description: Task type (image only)
  *     responses:
  *       200:
  *         description: Recent task retrieved successfully
@@ -249,7 +239,7 @@ router.get(
  *   get:
  *     summary: Get all tasks
  *     description: |
- *       Retrieve all tasks with optional filtering by type.
+ *       Retrieve all image tasks.
  *       - Regular users: Can only see active tasks.
  *       - Admin users: Can see all tasks (both active and inactive).
  *     tags: [Tasks]
@@ -260,7 +250,7 @@ router.get(
  *         name: type
  *         schema:
  *           type: string
- *           enum: [image, question]
+ *           enum: [image]
  *         description: Filter by task type
  *     responses:
  *       200:
@@ -287,11 +277,9 @@ router.get("/", authenticate, validate(getAllTasksSchema, "query"), getAllTasks)
  * @swagger
  * /api/v1/tasks:
  *   post:
- *     summary: Create a Task (Supports both image and question tasks)
+ *     summary: Create an image task
  *     description: |
- *       Unified endpoint to create tasks. 
- *       - For `image` type: Provide an image file via multipart `image` field.
- *       - For `question` type: Provide a JSON string array via the `questions` field.
+ *       Create a new image task. Provide an image file via multipart `image` field.
  *     tags: [Tasks]
  *     security:
  *       - bearerAuth: []
@@ -305,6 +293,7 @@ router.get("/", authenticate, validate(getAllTasksSchema, "query"), getAllTasks)
  *               - title
  *               - description
  *               - type
+ *               - image
  *             properties:
  *               title:
  *                 type: string
@@ -314,16 +303,12 @@ router.get("/", authenticate, validate(getAllTasksSchema, "query"), getAllTasks)
  *                 example: "Tell us what you see in the photo."
  *               type:
  *                 type: string
- *                 enum: [image, question]
+ *                 enum: [image]
  *                 example: "image"
  *               image:
  *                 type: string
  *                 format: binary
- *                 description: Required ONLY for type="image".
- *               questions:
- *                 type: string
- *                 description: JSON object string. Required ONLY for type="question".
- *                 example: '{"1":"How are you?","2":"What is your age?"}'
+ *                 description: Required image file.
  *     responses:
  *       201:
  *         description: Task created successfully
@@ -345,7 +330,7 @@ router.post(
   "/",
   authenticate,
   isAdmin,
-  upload.single("image"), 
+  upload.single("image"),
   validate(createTaskSchema),
   createTask
 );

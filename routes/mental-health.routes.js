@@ -69,5 +69,6 @@ const extendTimeout = (req, res, next) => {
  *         description: Claude API not configured or upstream error
  */
 router.post("/analyze", authenticate ,extendTimeout, analyzeText);
+// router.post("/analyze", extendTimeout, analyzeText);
 
 module.exports = router;

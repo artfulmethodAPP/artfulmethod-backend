@@ -21,7 +21,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     type: {
-      type: DataTypes.ENUM('image', 'question'),
+      type: DataTypes.ENUM('image'),
       allowNull: false
     },
     is_active: {
@@ -45,7 +45,6 @@ module.exports = (sequelize, DataTypes) => {
   Task.associate = (models) => {
     Task.belongsTo(models.User, { foreignKey: 'user_id' });
     Task.hasMany(models.TaskMedia, { foreignKey: 'task_id' });
-    Task.hasMany(models.TaskQuestion, { foreignKey: 'task_id' });
     Task.hasMany(models.TaskAttempt, { foreignKey: 'task_id' });
   };
 
