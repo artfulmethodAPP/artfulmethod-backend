@@ -4,8 +4,9 @@ const { JsonWebTokenError, TokenExpiredError } = require("jsonwebtoken");
 const { ValidationError, UniqueConstraintError } = require("sequelize");
 const AppError = require("../utils/app-error");
 
+
 const errorHandler = (error, req, res, next) => {
-  let normalizedError = error;
+  let normalizedError;
 
   if (error instanceof AppError) {
     normalizedError = error;
@@ -20,7 +21,11 @@ const errorHandler = (error, req, res, next) => {
       })),
     );
   } else if (error instanceof multer.MulterError) {
-    normalizedError = new AppError(error.message, 400, "UPLOAD_ERROR");
+    const message =
+      error.code === "LIMIT_FILE_SIZE"
+        ? "File size exceeds the allowed limit"
+        : error.message;
+    normalizedError = new AppError(message, 400, "UPLOAD_ERROR");
   } else if (error instanceof JsonWebTokenError || error instanceof TokenExpiredError) {
     normalizedError = new AppError("Invalid or expired token", 401, "UNAUTHORIZED");
   } else if (error instanceof UniqueConstraintError) {
@@ -43,12 +48,11 @@ const errorHandler = (error, req, res, next) => {
         message: item.message,
       })),
     );
+  } else if (error instanceof Error && error.message) {
+    // Plain errors — e.g. from multer fileFilter cb(new Error(...))
+    normalizedError = new AppError(error.message, 400, "BAD_REQUEST");
   } else {
-    normalizedError = new AppError(
-      error.message || "Internal server error",
-      error.statusCode || 500,
-      error.code || "INTERNAL_SERVER_ERROR",
-    );
+    normalizedError = new AppError("Internal server error", 500, "INTERNAL_SERVER_ERROR");
   }
 
   return res.status(normalizedError.statusCode).json({

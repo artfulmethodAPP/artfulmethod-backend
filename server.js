@@ -8,10 +8,11 @@ const errorHandler = require("./middlewares/error-handler");
 
 const app = express();
 app.use(express.json());
-app.use(cors({
-  origin: '*',
-  optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
-})
+app.use(
+  cors({
+    origin: "*",
+    optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
+  }),
 );
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 

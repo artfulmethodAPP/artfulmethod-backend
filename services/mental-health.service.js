@@ -36,12 +36,28 @@ const analyzeMentalHealth = async ({ text }) => {
 
   const prompt = template.replace("{{TRANSCRIBED_TEXT}}", text);
 
-  const message = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 50,
-    messages: [{ role: "user", content: prompt }],
-  });
-  console.log(message.content);
+  let message;
+  try {
+    message = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 50,
+      messages: [{ role: "user", content: prompt }],
+    });
+  } catch (error) {
+    const status = error.status;
+    if (status === 401) {
+      throw new AppError("Claude API key is invalid or expired", 500, "CLAUDE_NOT_CONFIGURED");
+    }
+    if (status === 429) {
+      throw new AppError("Claude API rate limit exceeded, please try again later", 429, "RATE_LIMITED");
+    }
+    throw new AppError(
+      error.message || "Claude analysis failed",
+      500,
+      "CLAUDE_ERROR",
+    );
+  }
+
   const analysis = message.content
     .filter((block) => block.type === "text")
     .map((block) => block.text)

@@ -44,18 +44,30 @@ const transcribeAudio = async ({ fileBuffer, originalname, mimetype }) => {
   });
   formData.append("model_id", "scribe_v1");
 
-  const response = await axios.post(
-    "https://api.elevenlabs.io/v1/speech-to-text",
-    formData,
-    {
-      headers: {
-        ...formData.getHeaders(),
-        "xi-api-key": apiKey,
+  try {
+    const response = await axios.post(
+      "https://api.elevenlabs.io/v1/speech-to-text",
+      formData,
+      {
+        headers: {
+          ...formData.getHeaders(),
+          "xi-api-key": apiKey,
+        },
       },
-    },
-  );
+    );
 
-  return response.data;
+    return response.data;
+  } catch (error) {
+    const status = error.response?.status;
+    if (status === 401) {
+      throw new AppError("ElevenLabs API key is invalid or expired", 500, "ELEVENLABS_NOT_CONFIGURED");
+    }
+    throw new AppError(
+      error.response?.data?.detail?.message || error.response?.data?.message || "ElevenLabs transcription failed",
+      500,
+      "TRANSCRIPTION_FAILED",
+    );
+  }
 };
 
 module.exports = {

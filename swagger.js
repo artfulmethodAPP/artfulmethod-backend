@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: "https://parts-tough-threshold-detect.trycloudflare.com    ",
+        url: "https://kevin-intensive-eggs-mary.trycloudflare.com",
         description: "Cloudflare Tunnel",
       },
       {

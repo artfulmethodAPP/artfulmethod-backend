@@ -28,7 +28,7 @@ const upload = multer({
     if (mimetype && extname) {
       return cb(null, true);
     } else {
-      cb(new Error("Only images are allowed!"));
+      cb(new Error("Only image files are allowed (jpeg, jpg, png, gif)"));
     }
   },
   limits: { fileSize: 5 * 1024 * 1024 },
