@@ -34,7 +34,7 @@ const saveTranscript = async ({ userId, text, duration, language, wordCount }) =
 const transcribeAudio = async ({ fileBuffer, originalname, mimetype }) => {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
-    throw new AppError("ElevenLabs API key is not configured", 500, "ELEVENLABS_NOT_CONFIGURED");
+    throw new AppError("API key is not configured", 500, "ELEVENLABS_NOT_CONFIGURED");
   }
 
   const formData = new FormData();

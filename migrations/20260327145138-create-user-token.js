@@ -2,7 +2,7 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("Refresh_tokens", {
+    await queryInterface.createTable("User_Tokens", {
       id: {
         allowNull: false,
         autoIncrement: true,
@@ -32,10 +32,6 @@ module.exports = {
         type: Sequelize.TEXT,
         allowNull: false,
       },
-      is_revoked: {
-        type: Sequelize.BOOLEAN,
-        defaultValue: false,
-      },
       expires_at: {
         type: Sequelize.DATE,
         allowNull: false,
@@ -51,6 +47,6 @@ module.exports = {
     });
   },
   async down(queryInterface, Sequelize) {
-    await queryInterface.dropTable("Refresh_tokens");
+    await queryInterface.dropTable("User_Tokens");
   },
 };

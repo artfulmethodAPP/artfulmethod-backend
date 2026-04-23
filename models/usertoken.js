@@ -1,8 +1,8 @@
 "use strict";
 
 module.exports = (sequelize, DataTypes) => {
-  const RefreshToken = sequelize.define(
-    "RefreshToken",
+  const UserToken = sequelize.define(
+    "UserToken",
     {
       id: {
         allowNull: false,
@@ -27,17 +27,13 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.TEXT,
         allowNull: false,
       },
-      is_revoked: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: false,
-      },
       expires_at: {
         type: DataTypes.DATE,
         allowNull: false,
       },
     },
     {
-      tableName: "Refresh_tokens",
+      tableName: "User_Tokens",
       createdAt: "created_at",
       updatedAt: "updated_at",
       timestamps: true,
@@ -45,9 +41,9 @@ module.exports = (sequelize, DataTypes) => {
     },
   );
 
-  RefreshToken.associate = (models) => {
-    RefreshToken.belongsTo(models.User, { foreignKey: "user_id" });
+  UserToken.associate = (models) => {
+    UserToken.belongsTo(models.User, { foreignKey: "user_id" });
   };
 
-  return RefreshToken;
+  return UserToken;
 };

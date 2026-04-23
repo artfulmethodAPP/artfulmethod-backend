@@ -110,6 +110,16 @@ const updateProfileSchema = z
   });
 
 // =====================
+// Check Email Schema
+// =====================
+const checkEmailSchema = z.object({
+  email: z
+    .string({ error: "Email is required" })
+    .email("Invalid email format")
+    .max(100),
+});
+
+// =====================
 // FINAL EXPORT
 // =====================
 module.exports = {
@@ -121,4 +131,5 @@ module.exports = {
   forgotPasswordSchema,
   resetPasswordSchema,
   updateProfileSchema,
+  checkEmailSchema,
 };

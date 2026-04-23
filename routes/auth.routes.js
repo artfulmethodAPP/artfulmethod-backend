@@ -10,6 +10,7 @@ const {
   forgotPassword,
   resetPassword,
   updateProfile,
+  checkEmail,
 } = require("../controller/auth.controller");
 
 const validate = require("../middlewares/validate");
@@ -24,6 +25,7 @@ const {
   forgotPasswordSchema,
   resetPasswordSchema,
   updateProfileSchema,
+  checkEmailSchema,
 } = require("../validations/auth.validation");
 
 /**
@@ -82,6 +84,32 @@ const {
  *       400:
  *         description: Bad request
  */
+/**
+ * @swagger
+ * /api/v1/auth/check-email:
+ *   post:
+ *     summary: Check if an email is already registered
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: john@example.com
+ *     responses:
+ *       200:
+ *         description: Email is available
+ *       409:
+ *         description: This email is already in use
+ */
+router.post("/check-email", validate(checkEmailSchema), checkEmail);
+
 router.post("/register", validate(registerSchema), createUser);
 
 /**

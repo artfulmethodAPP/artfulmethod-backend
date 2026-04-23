@@ -1,4 +1,4 @@
-const { User, RefreshToken } = require("../models");
+const { User, UserToken } = require("../models");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const AppError = require("../utils/app-error");
@@ -87,10 +87,17 @@ const verifyOTP = async ({ email, otp_code }) => {
     otp_expires_at: null,
   });
 
+  const tokens = await generateAuthTokens(user);
+
   return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      gender: user.gender,
+    },
+    tokens,
   };
 };
 
@@ -153,17 +160,13 @@ const forgotPassword = async (email) => {
     throw new AppError("Please verify your email first", 403, "FORBIDDEN");
   }
 
-  // Revoke any existing reset tokens for this user
-  await RefreshToken.update(
-    { is_revoked: true },
-    {
-      where: {
-        user_id: user.id,
-        token_type: "reset_password",
-        is_revoked: false,
-      },
+  // Delete any existing reset tokens for this user
+  await UserToken.destroy({
+    where: {
+      user_id: user.id,
+      token_type: "reset_password",
     },
-  );
+  });
 
   const resetToken = jwt.sign({ id: user.id }, JWT_RESET_SECRET, {
     expiresIn: "1h",
@@ -171,7 +174,7 @@ const forgotPassword = async (email) => {
 
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-  await RefreshToken.create({
+  await UserToken.create({
     user_id: user.id,
     token: resetToken,
     token_type: "reset_password",
@@ -197,12 +200,11 @@ const resetPassword = async ({ token, newPassword }) => {
     );
   }
 
-  const tokenDoc = await RefreshToken.findOne({
+  const tokenDoc = await UserToken.findOne({
     where: {
       token,
       user_id: payload.id,
       token_type: "reset_password",
-      is_revoked: false,
     },
   });
 
@@ -228,9 +230,8 @@ const resetPassword = async ({ token, newPassword }) => {
 
   await user.update({ password: hashedPassword });
 
-  // Revoke the used token
-  tokenDoc.is_revoked = true;
-  await tokenDoc.save();
+  // Delete the used token
+  await tokenDoc.destroy();
 
   return { message: "Password reset successful" };
 };
@@ -247,7 +248,15 @@ const generateAuthTokens = async (user) => {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
 
-  await RefreshToken.create({
+  // Delete all existing refresh tokens for this user before creating a new one
+  await UserToken.destroy({
+    where: {
+      user_id: user.id,
+      token_type: "refresh",
+    },
+  });
+
+  await UserToken.create({
     user_id: user.id,
     token: refreshToken,
     token_type: "refresh",
@@ -264,11 +273,10 @@ const refreshAuth = async (refreshToken) => {
   try {
     const payload = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
 
-    const refreshTokenDoc = await RefreshToken.findOne({
+    const refreshTokenDoc = await UserToken.findOne({
       where: {
         token: refreshToken,
         user_id: payload.id,
-        is_revoked: false,
         token_type: "refresh",
       },
     });
@@ -287,9 +295,8 @@ const refreshAuth = async (refreshToken) => {
       throw new AppError("User not found", 404, "NOT_FOUND");
     }
 
-    // revoke old token
-    refreshTokenDoc.is_revoked = true;
-    await refreshTokenDoc.save();
+    // Delete old token
+    await refreshTokenDoc.destroy();
 
     return generateAuthTokens(user);
   } catch (error) {
@@ -301,24 +308,22 @@ const refreshAuth = async (refreshToken) => {
 };
 
 const logout = async (refreshToken) => {
-  const refreshTokenDoc = await RefreshToken.findOne({
+  const refreshTokenDoc = await UserToken.findOne({
     where: {
       token: refreshToken,
       token_type: "refresh",
-      is_revoked: false,
     },
   });
 
   if (!refreshTokenDoc) {
     throw new AppError(
-      "Refresh token not found or already revoked",
+      "Refresh token not found or already logged out",
       400,
       "BAD_REQUEST",
     );
   }
 
-  refreshTokenDoc.is_revoked = true;
-  await refreshTokenDoc.save();
+  await refreshTokenDoc.destroy();
 };
 
 const updateProfile = async (
@@ -353,6 +358,14 @@ const updateProfile = async (
   };
 };
 
+const checkEmail = async (email) => {
+  const user = await User.findOne({ where: { email } });
+  if (user) {
+    throw new AppError("This email is already in use", 409, "CONFLICT");
+  }
+  return { available: true };
+};
+
 // =====================
 // Export (FINAL FIX)
 // =====================
@@ -365,4 +378,5 @@ module.exports = {
   refreshAuth,
   logout,
   updateProfile,
+  checkEmail,
 };

@@ -38,10 +38,10 @@ const logoutUser = asyncHandler(async (req, res) => {
 });
 
 const verifyOtp = asyncHandler(async (req, res) => {
-  const user = await authService.verifyOTP(req.body);
+  const result = await authService.verifyOTP(req.body);
   return sendSuccess(res, {
     message: "Email verified successfully",
-    data: { user },
+    data: result,
   });
 });
 
@@ -68,6 +68,14 @@ const updateProfile = asyncHandler(async (req, res) => {
   });
 });
 
+const checkEmail = asyncHandler(async (req, res) => {
+  const result = await authService.checkEmail(req.body.email);
+  return sendSuccess(res, {
+    message: "Email is available",
+    data: result,
+  });
+});
+
 module.exports = {
   createUser,
   loginUser,
@@ -77,4 +85,5 @@ module.exports = {
   forgotPassword,
   resetPassword,
   updateProfile,
+  checkEmail,
 };

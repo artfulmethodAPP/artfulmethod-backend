@@ -76,7 +76,7 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   User.associate = (models) => {
-    User.hasMany(models.RefreshToken, { foreignKey: "user_id" });
+    User.hasMany(models.UserToken, { foreignKey: "user_id" });
     User.hasMany(models.Task, { foreignKey: "user_id" });
     User.hasMany(models.TaskAttempt, { foreignKey: "user_id" });
     User.hasMany(models.AudioTranscript, { foreignKey: "user_id" });
