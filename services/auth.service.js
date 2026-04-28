@@ -16,6 +16,39 @@ const generateOTP = () => {
 };
 
 // =====================
+// Streak Helper
+// =====================
+const computeStreak = async (user) => {
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const last = user.last_activity_date; // DATEONLY string or null
+
+  let newStreak;
+
+  if (!last) {
+    // First ever activity
+    newStreak = 1;
+  } else if (last === today) {
+    // Already counted today — no change
+    return { streakCount: user.streak_count, lastActivityDate: last };
+  } else {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+    if (last === yesterdayStr) {
+      // Consecutive day
+      newStreak = user.streak_count + 1;
+    } else {
+      // Gap — reset
+      newStreak = 1;
+    }
+  }
+
+  await user.update({ streak_count: newStreak, last_activity_date: today });
+  return { streakCount: newStreak, lastActivityDate: today };
+};
+
+// =====================
 // Auth Functions
 // =====================
 const register = async ({
@@ -355,6 +388,8 @@ const updateProfile = async (
     goal: user.goal,
     art_frequency: user.art_frequency,
     source: user.source,
+    streak_count: user.streak_count,
+    last_activity_date: user.last_activity_date,
   };
 };
 
@@ -379,4 +414,5 @@ module.exports = {
   logout,
   updateProfile,
   checkEmail,
+  computeStreak,
 };

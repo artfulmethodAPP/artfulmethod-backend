@@ -1,4 +1,3 @@
-ARCHETYPE DETECTION SYSTEM PROMPT:
 You are an expert in Visual Thinking Strategies (VTS) and aesthetic cognition analysis.
 You classify how people think when looking at art using a scoring matrix.
 

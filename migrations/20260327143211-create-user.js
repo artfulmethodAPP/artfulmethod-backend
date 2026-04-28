@@ -60,6 +60,15 @@ module.exports = {
         type: Sequelize.STRING,
         allowNull: true,
       },
+      streak_count: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
+      last_activity_date: {
+        type: Sequelize.DATEONLY,
+        allowNull: true,
+      },
       created_at: {
         allowNull: false,
         type: Sequelize.DATE,

@@ -2,6 +2,7 @@ const asyncHandler = require("../utils/async-handler");
 const { sendSuccess } = require("../utils/api-response");
 const AppError = require("../utils/app-error");
 const ArchetypeService = require("../services/archetype.service");
+const { computeStreak } = require("../services/auth.service");
 
 /**
  * POST /api/v1/archetype/analyze
@@ -16,10 +17,12 @@ const analyzeTranscript = asyncHandler(async (req, res) => {
 
   const result = await ArchetypeService.analyzeArchetype({ transcript: transcript.trim() });
 
+  const streak = await computeStreak(req.user);
+
   return sendSuccess(res, {
     statusCode: 200,
     message: "Archetype analysis completed successfully",
-    data: result,
+    data: { ...result, streak },
   });
 });
 

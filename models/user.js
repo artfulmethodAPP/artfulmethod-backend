@@ -48,6 +48,15 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      streak_count: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
+      last_activity_date: {
+        type: DataTypes.DATEONLY,
+        allowNull: true,
+      },
       otp_code: {
         type: DataTypes.STRING(6),
         allowNull: true,
