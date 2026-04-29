@@ -60,19 +60,26 @@ const resetPassword = asyncHandler(async (req, res) => {
   });
 });
 
-const updateProfile = asyncHandler(async (req, res) => {
-  const user = await authService.updateProfile(req.user.id, req.body);
-  return sendSuccess(res, {
-    message: "Profile updated successfully",
-    data: { user },
-  });
-});
-
 const checkEmail = asyncHandler(async (req, res) => {
   const result = await authService.checkEmail(req.body.email);
   return sendSuccess(res, {
     message: "Email is available",
     data: result,
+  });
+});
+
+const deleteAccount = asyncHandler(async (req, res) => {
+  await authService.deleteAccount(req.user.id);
+  return sendSuccess(res, {
+    message: "Account deleted successfully",
+  });
+});
+
+const updatePersonalInfo = asyncHandler(async (req, res) => {
+  const user = await authService.updatePersonalInfo(req.user.id, req.body);
+  return sendSuccess(res, {
+    message: "Personal information updated successfully",
+    data: { user },
   });
 });
 
@@ -84,6 +91,7 @@ module.exports = {
   verifyOtp,
   forgotPassword,
   resetPassword,
-  updateProfile,
+  updatePersonalInfo,
   checkEmail,
+  deleteAccount,
 };

@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: "https://kevin-intensive-eggs-mary.trycloudflare.com",
+        url: "https://financial-dom-seems-her.trycloudflare.com",
         description: "Cloudflare Tunnel",
       },
       {

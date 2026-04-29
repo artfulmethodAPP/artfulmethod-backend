@@ -9,8 +9,9 @@ const {
   verifyOtp,
   forgotPassword,
   resetPassword,
-  updateProfile,
+  updatePersonalInfo,
   checkEmail,
+  deleteAccount,
 } = require("../controller/auth.controller");
 
 const validate = require("../middlewares/validate");
@@ -24,7 +25,7 @@ const {
   verifyOtpSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
-  updateProfileSchema,
+  updatePersonalInfoSchema,
   checkEmailSchema,
 } = require("../validations/auth.validation");
 
@@ -280,10 +281,10 @@ router.post("/reset-password", validate(resetPasswordSchema), resetPassword);
 
 /**
  * @swagger
- * /api/v1/auth/me:
+ * /api/v1/auth/personal-info:
  *   patch:
- *     summary: Update user profile
- *     description: Update optional profile fields (name, dob, gender, goal, source). Requires a verified account.
+ *     summary: Update personal information
+ *     description: Update name and date of birth from the Personal Information screen. Email and password are not changed here.
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
@@ -296,33 +297,64 @@ router.post("/reset-password", validate(resetPasswordSchema), resetPassword);
  *             properties:
  *               name:
  *                 type: string
- *                 example: John Doe
+ *                 example: Luna
  *               dob:
  *                 type: string
  *                 format: date
- *                 example: "1995-06-15"
- *               gender:
- *                 type: string
- *                 enum: [male, female, other]
- *                 example: male
- *               goal:
- *                 type: string
- *                 example: "Improve mental wellness"
- *               art_frequency:
- *                 type: string
- *                 example: "1-2 times a week"
- *               source:
- *                 type: string
- *                 example: "Instagram"
-
+ *                 example: "1984-04-11"
  *     responses:
  *       200:
- *         description: Profile updated successfully
+ *         description: Personal information updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Personal information updated successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: integer
+ *                         name:
+ *                           type: string
+ *                         email:
+ *                           type: string
+ *                         dob:
+ *                           type: string
  *       400:
  *         description: Validation error
  *       401:
  *         description: Unauthorized
  */
-router.patch("/me", authenticate, validate(updateProfileSchema), updateProfile);
+router.patch("/personal-info", authenticate, validate(updatePersonalInfoSchema), updatePersonalInfo);
+
+/**
+ * @swagger
+ * /api/v1/auth/me:
+ *   delete:
+ *     summary: Delete account (soft delete)
+ *     description: |
+ *       Soft-deletes the authenticated user's account by setting deleted_at.
+ *       All active sessions are revoked immediately.
+ *       The same email can be used to register a new account after deletion.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Account deleted successfully
+ *       401:
+ *         description: Unauthorized
+ */
+router.delete("/me", authenticate, deleteAccount);
 
 module.exports = router;

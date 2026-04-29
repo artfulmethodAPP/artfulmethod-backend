@@ -11,7 +11,7 @@ const registerSchema = z.object({
 
   password: z
     .string({ error: "Password is required" })
-    .min(6, "Password must be at least 6 characters")
+    .min(8, "Password must be at least 8 characters")
     .max(100),
 
   name: z
@@ -56,7 +56,7 @@ const loginSchema = z.object({
 
   password: z
     .string({ error: "Password is required" })
-    .min(6, "Password must be at least 6 characters")
+    .min(8, "Password must be at least 8 characters")
     .max(100),
 });
 
@@ -94,22 +94,6 @@ const resetPasswordSchema = z.object({
 });
 
 // =====================
-// Update Profile Schema
-// =====================
-const updateProfileSchema = z
-  .object({
-    name: z.string().min(3, "Name must be at least 3 characters").max(100).optional(),
-    dob: z.string().optional(),
-    gender: z.enum(["male", "female", "other"]).optional(),
-    goal: z.string().max(255).optional(),
-    art_frequency: z.string().max(255).optional(),
-    source: z.string().max(255).optional(),
-  })
-  .refine((data) => Object.keys(data).length > 0, {
-    message: "At least one field is required to update",
-  });
-
-// =====================
 // Check Email Schema
 // =====================
 const checkEmailSchema = z.object({
@@ -117,6 +101,14 @@ const checkEmailSchema = z.object({
     .string({ error: "Email is required" })
     .email("Invalid email format")
     .max(100),
+});
+
+// =====================
+// Personal Info Schema
+// =====================
+const updatePersonalInfoSchema = z.object({
+  name: z.string().min(1, "Name cannot be empty").max(100).optional(),
+  dob: z.string().optional(),
 });
 
 // =====================
@@ -130,6 +122,6 @@ module.exports = {
   logoutSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
-  updateProfileSchema,
+  updatePersonalInfoSchema,
   checkEmailSchema,
 };

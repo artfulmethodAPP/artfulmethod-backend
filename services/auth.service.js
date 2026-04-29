@@ -1,4 +1,5 @@
 const { User, UserToken } = require("../models");
+const { Op } = require("sequelize");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const AppError = require("../utils/app-error");
@@ -61,12 +62,46 @@ const register = async ({
   art_frequency,
   source,
 }) => {
+  // Check for any existing record with this email (including soft-deleted ones)
   const existingUser = await User.findOne({ where: { email } });
   if (existingUser) {
-    if (existingUser.is_verified) {
+    if (!existingUser.deleted_at) {
+      // Active account — block re-registration
       throw new AppError("User already exists", 409, "CONFLICT");
     }
-    // await existingUser.destroy({ force: true });
+    // Soft-deleted account — revive the same row instead of creating a duplicate.
+    // Reset all fields, clear deleted_at, and issue a fresh OTP.
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const otp_code = generateOTP();
+    const otp_expires_at = new Date(Date.now() + 5 * 60 * 1000);
+
+    await UserToken.destroy({ where: { user_id: existingUser.id } });
+
+    await existingUser.update({
+      password: hashedPassword,
+      name: name || null,
+      dob: dob || null,
+      gender: gender || null,
+      goal: goal || null,
+      art_frequency: art_frequency || null,
+      source: source || null,
+      otp_code,
+      otp_expires_at,
+      is_verified: false,
+      streak_count: 0,
+      last_activity_date: null,
+      deleted_at: null,
+    });
+
+    await sendOTPEmail(email, otp_code, existingUser.id);
+
+    return {
+      id: existingUser.id,
+      email: existingUser.email,
+      name: existingUser.name,
+      dob: existingUser.dob,
+      created_at: existingUser.created_at,
+    };
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -93,12 +128,13 @@ const register = async ({
     id: user.id,
     email: user.email,
     name: user.name,
+    dob: user.dob,
     created_at: user.created_at,
   };
 };
 
 const verifyOTP = async ({ email, otp_code }) => {
-  const user = await User.findOne({ where: { email } });
+  const user = await User.findOne({ where: { email, deleted_at: null } });
 
   if (!user) throw new AppError("User not found", 404, "NOT_FOUND");
 
@@ -137,7 +173,7 @@ const verifyOTP = async ({ email, otp_code }) => {
 const login = async ({ email, password = "" }) => {
   const user = await User.findOne({ where: { email } });
 
-  if (!user) {
+  if (!user || user.deleted_at) {
     throw new AppError(
       "We couldn’t find an account with this email",
       401,
@@ -177,6 +213,7 @@ const login = async ({ email, password = "" }) => {
       email: user.email,
       role: user.role,
       gender: user.gender,
+      dob: user.dob,
     },
     tokens,
   };
@@ -226,11 +263,7 @@ const resetPassword = async ({ token, newPassword }) => {
   try {
     payload = jwt.verify(token, JWT_RESET_SECRET);
   } catch {
-    throw new AppError(
-      "Invalid or expired reset link",
-      401,
-      "UNAUTHORIZED",
-    );
+    throw new AppError("Invalid or expired reset link", 401, "UNAUTHORIZED");
   }
 
   const tokenDoc = await UserToken.findOne({
@@ -242,11 +275,7 @@ const resetPassword = async ({ token, newPassword }) => {
   });
 
   if (!tokenDoc) {
-    throw new AppError(
-      "Invalid or expired reset link",
-      401,
-      "UNAUTHORIZED",
-    );
+    throw new AppError("Invalid or expired reset link", 401, "UNAUTHORIZED");
   }
 
   if (new Date() > new Date(tokenDoc.expires_at)) {
@@ -359,11 +388,8 @@ const logout = async (refreshToken) => {
   await refreshTokenDoc.destroy();
 };
 
-const updateProfile = async (
-  userId,
-  { name, dob, gender, goal, art_frequency, source },
-) => {
-  const user = await User.findByPk(userId);
+const updatePersonalInfo = async (userId, { name, dob }) => {
+  const user = await User.findOne({ where: { id: userId, deleted_at: null } });
 
   if (!user) {
     throw new AppError("User not found", 404, "NOT_FOUND");
@@ -372,29 +398,33 @@ const updateProfile = async (
   const updates = {};
   if (name !== undefined) updates.name = name;
   if (dob !== undefined) updates.dob = dob;
-  if (gender !== undefined) updates.gender = gender;
-  if (goal !== undefined) updates.goal = goal;
-  if (art_frequency !== undefined) updates.art_frequency = art_frequency;
-  if (source !== undefined) updates.source = source;
 
   await user.update(updates);
 
   return {
     id: user.id,
-    email: user.email,
     name: user.name,
+    email: user.email,
     dob: user.dob,
-    gender: user.gender,
-    goal: user.goal,
-    art_frequency: user.art_frequency,
-    source: user.source,
-    streak_count: user.streak_count,
-    last_activity_date: user.last_activity_date,
   };
 };
 
+const deleteAccount = async (userId) => {
+  const user = await User.findOne({ where: { id: userId, deleted_at: null } });
+
+  if (!user) {
+    throw new AppError("User not found", 404, "NOT_FOUND");
+  }
+
+  // Revoke all tokens so existing sessions stop working immediately
+  await UserToken.destroy({ where: { user_id: userId } });
+
+  // Soft delete — set deleted_at to now
+  await user.update({ deleted_at: new Date() });
+};
+
 const checkEmail = async (email) => {
-  const user = await User.findOne({ where: { email } });
+  const user = await User.findOne({ where: { email, deleted_at: null } });
   if (user) {
     throw new AppError("This email is already in use", 409, "CONFLICT");
   }
@@ -412,7 +442,8 @@ module.exports = {
   resetPassword,
   refreshAuth,
   logout,
-  updateProfile,
+  updatePersonalInfo,
   checkEmail,
+  deleteAccount,
   computeStreak,
 };
