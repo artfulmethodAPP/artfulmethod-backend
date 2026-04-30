@@ -2,6 +2,8 @@ const authService = require("../services/auth.service");
 const asyncHandler = require("../utils/async-handler");
 const { sendSuccess } = require("../utils/api-response");
 
+//create user api business logic  
+
 const createUser = asyncHandler(async (req, res) => {
   const user = await authService.register(req.body);
   return sendSuccess(res, {
