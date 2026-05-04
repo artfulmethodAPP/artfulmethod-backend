@@ -21,7 +21,7 @@ const transcribeAudio = asyncHandler(async (req, res) => {
     throw new AppError("Audio file is required", 400, "VALIDATION_ERROR");
   }
 
-  const result = await TranscribeService.transcribeAudio({
+  const { transcription, audioUrl } = await TranscribeService.transcribeAudio({
     fileBuffer: req.file.buffer,
     originalname: req.file.originalname,
     mimetype: req.file.mimetype,
@@ -30,7 +30,7 @@ const transcribeAudio = asyncHandler(async (req, res) => {
   return sendSuccess(res, {
     statusCode: 200,
     message: "Audio transcribed successfully",
-    data: { transcription: result },
+    data: { transcription, audioUrl },
   });
 });
 

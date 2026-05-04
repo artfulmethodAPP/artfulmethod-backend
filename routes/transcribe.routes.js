@@ -18,7 +18,7 @@ const router = express.Router();
  * @swagger
  * /api/v1/transcribe/save:
  *   post:
- *     summary: Save an audio transcript
+ *     summary: Save transcript to DB and upload text file to S3 (runs in parallel)
  *     tags: [Transcribe]
  *     security:
  *       - bearerAuth: []
@@ -59,7 +59,7 @@ router.post("/save", authenticate, validate(saveTranscriptSchema), saveTranscrip
  * @swagger
  * /api/v1/transcribe/audio:
  *   post:
- *     summary: Transcribe an audio file to text using ElevenLabs
+ *     summary: Transcribe audio via ElevenLabs and upload to S3 (runs in parallel)
  *     tags: [Transcribe]
  *     security:
  *       - bearerAuth: []
@@ -103,9 +103,5 @@ router.post("/save", authenticate, validate(saveTranscriptSchema), saveTranscrip
  *         description: Unauthorized
  */
 router.post("/audio", authenticate, audioUpload.single("audio"), transcribeAudio);
-// router.post("/audio", audioUpload.single("audio"), transcribeAudio);
-
-
-
 
 module.exports = router;

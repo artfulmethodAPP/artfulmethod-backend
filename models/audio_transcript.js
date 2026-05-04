@@ -34,6 +34,14 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: false,
       },
+      audio_s3_url: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      transcript_s3_url: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
     },
     {
       tableName: "Audio_Transcripts",

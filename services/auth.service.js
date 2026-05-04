@@ -62,6 +62,26 @@ const register = async ({
   art_frequency,
   source,
 }) => {
+  // Age validation — must be at least 16 years old
+  if (dob) {
+    const birthDate = new Date(dob);
+    const today = new Date();
+    const age = today.getFullYear() - birthDate.getFullYear();
+    const hasHadBirthdayThisYear =
+      today.getMonth() > birthDate.getMonth() ||
+      (today.getMonth() === birthDate.getMonth() &&
+        today.getDate() >= birthDate.getDate());
+    const exactAge = hasHadBirthdayThisYear ? age : age - 1;
+
+    if (exactAge < 16) {
+      throw new AppError(
+        "You must be at least 16 years old to create an account.",
+        422,
+        "UNDERAGE",
+      );
+    }
+  }
+
   // Check for any existing record with this email (including soft-deleted ones)
   const existingUser = await User.findOne({ where: { email } });
   if (existingUser) {
@@ -220,14 +240,27 @@ const login = async ({ email, password = "" }) => {
 };
 
 const forgotPassword = async (email) => {
-  const user = await User.findOne({ where: { email } });
+  const user = await User.findOne({ where: { email, deleted_at: null } });
 
+  // Email not registered — return generic response to avoid leaking info
   if (!user) {
-    throw new AppError("User not found", 404, "NOT_FOUND");
+    return {
+      message:
+        "If an account exists for this email, a password reset link has been sent.",
+    };
   }
 
+  // Account exists but not verified — resend OTP so they can complete verification
   if (!user.is_verified) {
-    throw new AppError("Please verify your email first", 403, "FORBIDDEN");
+    const otp_code = generateOTP();
+    const otp_expires_at = new Date(Date.now() + 5 * 60 * 1000);
+    await user.update({ otp_code, otp_expires_at });
+    await sendOTPEmail(email, otp_code, user.id);
+    throw new AppError(
+      "Your account is not verified yet. A new OTP has been sent to your email.",
+      403,
+      "FORBIDDEN",
+    );
   }
 
   // Delete any existing reset tokens for this user
@@ -255,7 +288,10 @@ const forgotPassword = async (email) => {
 
   await sendResetPasswordLinkEmail(email, resetLink, user.id);
 
-  return { message: "Password reset link sent to your email" };
+  return {
+    message:
+      "If an account exists for this email, a password reset link has been sent.",
+  };
 };
 
 const resetPassword = async ({ token, newPassword }) => {
