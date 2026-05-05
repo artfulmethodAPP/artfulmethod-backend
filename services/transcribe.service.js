@@ -47,7 +47,7 @@ const uploadTranscriptToS3 = async (text) => {
 };
 
 // Transcribe audio via ElevenLabs AND upload to S3 in parallel
-const transcribeAudio = async ({ fileBuffer, originalname, mimetype }) => {
+const transcribeAudio = async ({ fileBuffer, originalname, mimetype, userId }) => {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
     throw new AppError("API key is not configured", 500, "ELEVENLABS_NOT_CONFIGURED");
@@ -92,6 +92,16 @@ const transcribeAudio = async ({ fileBuffer, originalname, mimetype }) => {
     s3UploadRequest,
   ]);
 
+  await AudioTranscript.create({
+    user_id: userId,
+    transcript_text: elevenLabsResponse.data.text || "",
+    duration_seconds: elevenLabsResponse.data.audio_duration ?? 0,
+    language: elevenLabsResponse.data.language_code || "unknown",
+    word_count: countWords(elevenLabsResponse.data.text || ""),
+    character_count: (elevenLabsResponse.data.text || "").length,
+    audio_s3_url: audioUrl,
+  });
+
   return {
     transcription: elevenLabsResponse.data,
     audioUrl,
@@ -101,15 +111,14 @@ const transcribeAudio = async ({ fileBuffer, originalname, mimetype }) => {
 // Save transcript to DB AND upload text file to S3 in parallel
 const saveTranscript = async ({ userId, text, duration, language, wordCount }) => {
   const normalizedText = text.trim();
-  const normalizedLanguage = language.trim();
   const computedWordCount = countWords(normalizedText);
 
   const [transcript, transcriptUrl] = await Promise.all([
     AudioTranscript.create({
       user_id: userId,
       transcript_text: normalizedText,
-      duration_seconds: duration,
-      language: normalizedLanguage,
+      duration_seconds: duration ?? null,
+      language: language?.trim() ?? null,
       word_count: wordCount ?? computedWordCount,
       character_count: normalizedText.length,
     }),

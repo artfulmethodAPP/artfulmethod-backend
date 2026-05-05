@@ -10,21 +10,17 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.INTEGER,
       },
-      attempt_id: {
+      user_id: {
         type: Sequelize.INTEGER,
         allowNull: false,
         references: {
-          model: "Task_Attempts",
+          model: "Users",
           key: "id",
         },
         onUpdate: "CASCADE",
         onDelete: "CASCADE",
       },
       pdf_url: {
-        type: Sequelize.STRING(250),
-        allowNull: true,
-      },
-      ai_response_url_link: {
         type: Sequelize.STRING(500),
         allowNull: true,
       },

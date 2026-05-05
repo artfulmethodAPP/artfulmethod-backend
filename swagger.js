@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: "https://financial-dom-seems-her.trycloudflare.com",
+        url: "https://hostels-removable-editions-queen.trycloudflare.com/",
         description: "Cloudflare Tunnel",
       },
       {

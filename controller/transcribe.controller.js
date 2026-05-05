@@ -25,6 +25,7 @@ const transcribeAudio = asyncHandler(async (req, res) => {
     fileBuffer: req.file.buffer,
     originalname: req.file.originalname,
     mimetype: req.file.mimetype,
+    userId: req.user.id,
   });
 
   return sendSuccess(res, {

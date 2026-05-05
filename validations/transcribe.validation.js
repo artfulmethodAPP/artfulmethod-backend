@@ -8,13 +8,14 @@ const saveTranscriptSchema = z.object({
     .max(50000, "text must be 50000 characters or less"),
   duration: z.coerce
     .number()
-    .int("duration must be an integer")
-    .nonnegative("duration must be 0 or greater"),
+    .nonnegative("duration must be 0 or greater")
+    .optional(),
   language: z
-    .string({ error: "language is required" })
+    .string()
     .trim()
-    .min(2, "language is required")
-    .max(20, "language must be 20 characters or less"),
+    .min(2, "language must be at least 2 characters")
+    .max(20, "language must be 20 characters or less")
+    .optional(),
   wordCount: z.coerce
     .number()
     .int("wordCount must be an integer")

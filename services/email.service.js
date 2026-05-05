@@ -1,4 +1,4 @@
-const resend = require("../config/email.config");
+const transporter = require("../config/email.config");
 const { EmailLog } = require("../models");
 const AppError = require("../utils/app-error");
 
@@ -6,7 +6,7 @@ const FROM_ADDRESS = "noreply@notification.artfulmethod.org";
 
 const sendOTPEmail = async (email, otp_code, user_id) => {
   try {
-    await resend.emails.send({
+    await transporter.sendMail({
       from: FROM_ADDRESS,
       to: email,
       subject: "Email Verification OTP",
@@ -27,6 +27,7 @@ const sendOTPEmail = async (email, otp_code, user_id) => {
       sent_at: new Date(),
     });
   } catch (error) {
+    console.error("[sendOTPEmail] SMTP error:", error.message, error.code, error.response);
     await EmailLog.create({
       user_id,
       email,
@@ -43,7 +44,7 @@ const sendOTPEmail = async (email, otp_code, user_id) => {
 
 const sendResetPasswordLinkEmail = async (email, resetLink, user_id) => {
   try {
-    await resend.emails.send({
+    await transporter.sendMail({
       from: FROM_ADDRESS,
       to: email,
       subject: "Forgotten password",

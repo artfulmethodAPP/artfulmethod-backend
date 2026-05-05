@@ -19,20 +19,20 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       duration_seconds: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
+        type: DataTypes.FLOAT,
+        allowNull: true,
       },
       language: {
         type: DataTypes.STRING(20),
-        allowNull: false,
+        allowNull: true,
       },
       word_count: {
         type: DataTypes.INTEGER,
-        allowNull: false,
+        allowNull: true,
       },
       character_count: {
         type: DataTypes.INTEGER,
-        allowNull: false,
+        allowNull: true,
       },
       audio_s3_url: {
         type: DataTypes.TEXT,

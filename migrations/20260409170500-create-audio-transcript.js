@@ -25,20 +25,20 @@ module.exports = {
         allowNull: false,
       },
       duration_seconds: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
+        type: Sequelize.FLOAT,
+        allowNull: true,
       },
       language: {
         type: Sequelize.STRING(20),
-        allowNull: false,
+        allowNull: true,
       },
       word_count: {
         type: Sequelize.INTEGER,
-        allowNull: false,
+        allowNull: true,
       },
       character_count: {
         type: Sequelize.INTEGER,
-        allowNull: false,
+        allowNull: true,
       },
       created_at: {
         allowNull: false,

@@ -8,15 +8,11 @@ module.exports = (sequelize, DataTypes) => {
       primaryKey: true,
       type: DataTypes.INTEGER,
     },
-    attempt_id: {
+    user_id: {
       type: DataTypes.INTEGER,
       allowNull: false
     },
     pdf_url: {
-      type: DataTypes.STRING(250),
-      allowNull: true
-    },
-    ai_response_url_link: {
       type: DataTypes.STRING(500),
       allowNull: true
     },
@@ -25,7 +21,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     }
   }, {
-    tableName: 'Ai_Report',
+    tableName: 'Ai_Reports',
     createdAt: 'created_at',
     updatedAt: 'updated_at',
     timestamps: true,
@@ -33,7 +29,7 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   AiReport.associate = (models) => {
-    AiReport.belongsTo(models.TaskAttempt, { foreignKey: 'attempt_id' });
+    AiReport.belongsTo(models.User, { foreignKey: 'user_id' });
     AiReport.hasMany(models.EmailLog, { foreignKey: 'report_id' });
   };
 
