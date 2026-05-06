@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: "https://hostels-removable-editions-queen.trycloudflare.com/",
+        url: "https://moses-geek-addition-contests.trycloudflare.com/",
         description: "Cloudflare Tunnel",
       },
       {
