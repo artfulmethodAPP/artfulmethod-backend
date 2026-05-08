@@ -12,8 +12,8 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: false
     },
-    pdf_url: {
-      type: DataTypes.STRING(500),
+    pdf_s3_key: {
+      type: DataTypes.TEXT,
       allowNull: true
     },
     error_message: {

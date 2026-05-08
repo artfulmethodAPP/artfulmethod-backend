@@ -1,6 +1,22 @@
 const express = require("express");
-const { analyzeTranscript } = require("../controller/archetype.controller");
 const authenticate = require("../middlewares/authenticate.middleware");
+const isAdmin = require("../middlewares/isAdmin.middleware");
+const validate = require("../middlewares/validate");
+const iconUploadS3 = require("../middlewares/icon-upload-s3.middleware");
+const { analyzeTranscript } = require("../controller/archetype.controller");
+const {
+  createArchetype,
+  getAllArchetypes,
+  getArchetype,
+  updateArchetype,
+  deleteArchetype,
+  getReportUrl,
+} = require("../controller/archetypes.controller");
+const {
+  createArchetypeSchema,
+  updateArchetypeSchema,
+  archetypeParamsSchema,
+} = require("../validations/archetype.validation");
 
 const router = express.Router();
 
@@ -15,8 +31,179 @@ const extendTimeout = (req, res, next) => {
  * @swagger
  * tags:
  *   name: Archetype
- *   description: Aesthetic Archetype analysis from transcript text
+ *   description: Aesthetic Archetype management and analysis
  */
+
+// ─── CRUD ─────────────────────────────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/v1/archetype:
+ *   post:
+ *     summary: Create a new archetype (admin only)
+ *     tags: [Archetype]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *             properties:
+ *               name:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               color:
+ *                 type: string
+ *                 description: Hex or CSS color value (e.g. #C9A84C)
+ *               icon:
+ *                 type: string
+ *                 format: binary
+ *                 description: Icon image — uploaded to S3; url stored in icon_url
+ *     responses:
+ *       201:
+ *         description: Archetype created
+ *       400:
+ *         description: Validation error
+ */
+router.post(
+  "/",
+  authenticate,
+  isAdmin,
+  iconUploadS3.single("icon"),
+  validate(createArchetypeSchema),
+  createArchetype,
+);
+
+/**
+ * @swagger
+ * /api/v1/archetype:
+ *   get:
+ *     summary: List all archetypes
+ *     tags: [Archetype]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of archetypes
+ */
+router.get("/", authenticate, getAllArchetypes);
+
+/**
+ * @swagger
+ * /api/v1/archetype/{id}:
+ *   get:
+ *     summary: Get a single archetype by id
+ *     tags: [Archetype]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Archetype record
+ *       404:
+ *         description: Not found
+ */
+router.get(
+  "/:id",
+  authenticate,
+  validate(archetypeParamsSchema, "params"),
+  getArchetype,
+);
+
+/**
+ * @swagger
+ * /api/v1/archetype/{id}:
+ *   put:
+ *     summary: Update an archetype (admin only)
+ *     tags: [Archetype]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               color:
+ *                 type: string
+ *               icon:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Archetype updated
+ *       404:
+ *         description: Not found
+ */
+router.put(
+  "/:id",
+  authenticate,
+  isAdmin,
+  validate(archetypeParamsSchema, "params"),
+  iconUploadS3.single("icon"),
+  validate(updateArchetypeSchema),
+  updateArchetype,
+);
+
+router.patch(
+  "/:id",
+  authenticate,
+  isAdmin,
+  validate(archetypeParamsSchema, "params"),
+  iconUploadS3.single("icon"),
+  validate(updateArchetypeSchema),
+  updateArchetype,
+);
+
+/**
+ * @swagger
+ * /api/v1/archetype/{id}:
+ *   delete:
+ *     summary: Delete an archetype (admin only)
+ *     tags: [Archetype]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Archetype deleted
+ *       404:
+ *         description: Not found
+ */
+router.delete(
+  "/:id",
+  authenticate,
+  isAdmin,
+  validate(archetypeParamsSchema, "params"),
+  deleteArchetype,
+);
+
+// ─── Analysis ─────────────────────────────────────────────────────────────────
 
 /**
  * @swagger
@@ -48,25 +235,52 @@ const extendTimeout = (req, res, next) => {
  *     responses:
  *       200:
  *         description: Full archetype analysis result
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Archetype analysis completed successfully
- *                 data:
- *                   $ref: '#/components/schemas/ArchetypeResult'
  *       400:
  *         description: transcript field missing or empty
  *       500:
  *         description: Claude API error
  */
 router.post("/analyze", authenticate, extendTimeout, analyzeTranscript);
+
+/**
+ * @swagger
+ * /api/v1/archetype/report/{id}:
+ *   get:
+ *     summary: Get archetype report URL by id
+ *     description: Returns the generated report URL for a specific archetype analysis/report.
+ *     tags: [Archetype]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         description: Report or archetype analysis ID
+ *         schema:
+ *           type: integer
+ *           example: 12
+ *     responses:
+ *       200:
+ *         description: Report URL fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 url:
+ *                   type: string
+ *                   example: https://example.com/reports/12.pdf
+ *       400:
+ *         description: Invalid report ID
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Report not found
+ *       500:
+ *         description: Internal server error
+ */
+
+router.get("/report/:id", authenticate, getReportUrl);
 
 /**
  * @swagger
@@ -95,45 +309,33 @@ router.post("/analyze", authenticate, extendTimeout, analyzeTranscript);
  *           description: 4 short lines for reveal cards (Screens 3–6). Feed as teaserCards[0]…[3].
  *           items:
  *             type: string
- *           example:
- *             - "You make meaning by seeing connections others miss and bringing different ideas together."
- *             - "You naturally notice how emotion, logic, and perspective interact within a bigger whole."
- *             - "Where others may separate ideas, you instinctively look for how they fit together."
- *             - "Your gift lies in seeing complexity clearly — and learning when to simplify it for others."
  *         report:
  *           type: object
  *           description: Full portrait report data for Screen 8
  *           properties:
  *             intro:
  *               type: string
- *               description: Fixed intro paragraph — always the same, never changes
  *             sections:
  *               type: array
- *               description: Parsed report sections — use heading as section title, body as content
  *               items:
  *                 type: object
  *                 properties:
  *                   heading:
  *                     type: string
- *                     example: What shapes this thinking
  *                   body:
  *                     type: string
- *                     example: You hold the whole thing at once...
  *             raw:
  *               type: string
- *               description: Full report as a single string (fallback if section parsing is not needed)
  *         quotesAndMeanings:
  *           type: array
- *           description: 4 quotes from transcript with VTS meaning blocks (Screen 9 — "What You Said and What It Reveals")
+ *           description: 4 quotes from transcript with VTS meaning blocks
  *           items:
  *             type: object
  *             properties:
  *               quote:
  *                 type: string
- *                 example: "Immediately, I love all the colors."
  *               meaning:
  *                 type: string
- *                 example: "Your first move was sensory and affective. Before anything else, the image registered as a feeling..."
  */
 
 module.exports = router;

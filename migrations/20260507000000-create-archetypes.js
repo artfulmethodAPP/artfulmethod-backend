@@ -1,35 +1,39 @@
 "use strict";
-
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("Ai_Reports", {
+    await queryInterface.createTable("Archetypes", {
       id: {
         allowNull: false,
         autoIncrement: true,
         primaryKey: true,
         type: Sequelize.INTEGER,
       },
-      attempt_id: {
+      created_by: {
         type: Sequelize.INTEGER,
         allowNull: false,
         references: {
-          model: "Task_Attempts",
+          model: "Users",
           key: "id",
         },
         onUpdate: "CASCADE",
         onDelete: "CASCADE",
       },
-      pdf_url: {
-        type: Sequelize.STRING(250),
-        allowNull: true,
+      name: {
+        type: Sequelize.STRING(100),
+        allowNull: false,
+        unique: true,
       },
-      ai_response_url_link: {
-        type: Sequelize.STRING(500),
-        allowNull: true,
-      },
-      error_message: {
+      description: {
         type: Sequelize.TEXT,
+        allowNull: true,
+      },
+      color: {
+        type: Sequelize.STRING(20),
+        allowNull: true,
+      },
+      icon_url: {
+        type: Sequelize.STRING,
         allowNull: true,
       },
       created_at: {
@@ -44,6 +48,10 @@ module.exports = {
   },
 
   async down(queryInterface, Sequelize) {
-    await queryInterface.dropTable("Ai_Reports");
+    await queryInterface.dropTable("Archetypes");
   },
 };
+
+
+
+

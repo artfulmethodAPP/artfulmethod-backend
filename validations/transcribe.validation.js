@@ -1,6 +1,11 @@
 const { z } = require("zod");
 
 const saveTranscriptSchema = z.object({
+  transcript_id: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
   text: z
     .string({ error: "text is required" })
     .trim()

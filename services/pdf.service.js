@@ -4,6 +4,7 @@ const PDFDocument = require("pdfkit");
 const { randomUUID } = require("crypto");
 const { PutObjectCommand } = require("@aws-sdk/client-s3");
 const s3 = require("../config/s3.config");
+const { getPresignedUrl } = require("./s3.service");
 
 // ─── Colour palette ──────────────────────────────────────────────────────────
 const COLOURS = {
@@ -419,9 +420,10 @@ const generateReportPdf = (result) => {
 // ─── Upload PDF buffer to S3 ──────────────────────────────────────────────────
 
 /**
- * Uploads a PDF Buffer to S3 under reports/ and returns the public URL.
+ * Uploads a PDF Buffer to S3 and returns the permanent S3 key (not a URL).
+ * The key is stored in the DB; presigned URLs are generated on demand.
  * @param {Buffer} pdfBuffer
- * @returns {Promise<string>}
+ * @returns {Promise<string>} S3 key e.g. "reports/uuid.pdf"
  */
 const uploadReportPdfToS3 = async (pdfBuffer) => {
   const key = `reports/${randomUUID()}.pdf`;
@@ -435,7 +437,7 @@ const uploadReportPdfToS3 = async (pdfBuffer) => {
     }),
   );
 
-  return `${process.env.AWS_PREVIEW}/${key}`;
+  return key;
 };
 
 module.exports = { generateReportPdf, uploadReportPdfToS3 };

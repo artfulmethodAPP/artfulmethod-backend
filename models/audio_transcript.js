@@ -34,11 +34,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: true,
       },
-      audio_s3_url: {
-        type: DataTypes.TEXT,
-        allowNull: true,
-      },
-      transcript_s3_url: {
+      audio_s3_key: {
         type: DataTypes.TEXT,
         allowNull: true,
       },

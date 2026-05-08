@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: "https://moses-geek-addition-contests.trycloudflare.com/",
+        url: "https://stephanie-developers-construct-became.trycloudflare.com",
         description: "Cloudflare Tunnel",
       },
       {

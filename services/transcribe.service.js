@@ -13,7 +13,7 @@ const countWords = (text) => {
   return trimmedText.split(/\s+/).length;
 };
 
-// Upload raw audio buffer to S3 audio/ folder
+// Upload raw audio buffer to S3 — returns S3 key (not URL)
 const uploadAudioToS3 = async ({ fileBuffer, originalname, mimetype }) => {
   const ext = path.extname(originalname).toLowerCase() || ".mp3";
   const key = `audio/${randomUUID()}${ext}`;
@@ -27,23 +27,7 @@ const uploadAudioToS3 = async ({ fileBuffer, originalname, mimetype }) => {
     }),
   );
 
-  return `${process.env.AWS_PREVIEW}/${key}`;
-};
-
-// Upload transcript text to S3 transcripts/ folder
-const uploadTranscriptToS3 = async (text) => {
-  const key = `transcripts/${randomUUID()}.txt`;
-
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: process.env.AWS_BUCKET,
-      Key: key,
-      Body: text,
-      ContentType: "text/plain",
-    }),
-  );
-
-  return `${process.env.AWS_PREVIEW}/${key}`;
+  return key;
 };
 
 // Transcribe audio via ElevenLabs AND upload to S3 in parallel
@@ -87,48 +71,62 @@ const transcribeAudio = async ({ fileBuffer, originalname, mimetype, userId }) =
 
   const s3UploadRequest = uploadAudioToS3({ fileBuffer, originalname, mimetype });
 
-  const [elevenLabsResponse, audioUrl] = await Promise.all([
+  const [elevenLabsResponse, audioS3Key] = await Promise.all([
     elevenLabsRequest,
     s3UploadRequest,
   ]);
 
-  await AudioTranscript.create({
+  const transcript = await AudioTranscript.create({
     user_id: userId,
     transcript_text: elevenLabsResponse.data.text || "",
     duration_seconds: elevenLabsResponse.data.audio_duration ?? 0,
     language: elevenLabsResponse.data.language_code || "unknown",
     word_count: countWords(elevenLabsResponse.data.text || ""),
     character_count: (elevenLabsResponse.data.text || "").length,
-    audio_s3_url: audioUrl,
+    audio_s3_key: audioS3Key,
   });
 
   return {
     transcription: elevenLabsResponse.data,
-    audioUrl,
+    transcript_id: transcript.id,
   };
 };
 
-// Save transcript to DB AND upload text file to S3 in parallel
-const saveTranscript = async ({ userId, text, duration, language, wordCount }) => {
+// Save transcript — no S3
+// Audio flow:   transcript_id provided → update the record created by /audio (user may have edited text)
+// Typing flow:  no transcript_id → create a new record, audio_s3_key stays null
+const saveTranscript = async ({ userId, transcriptId, text, duration, language, wordCount }) => {
   const normalizedText = text.trim();
   const computedWordCount = countWords(normalizedText);
 
-  const [transcript, transcriptUrl] = await Promise.all([
-    AudioTranscript.create({
-      user_id: userId,
+  if (transcriptId) {
+    const existing = await AudioTranscript.findOne({
+      where: { id: transcriptId, user_id: userId },
+    });
+
+    if (!existing) {
+      throw new AppError("Transcript not found", 404, "NOT_FOUND");
+    }
+
+    await existing.update({
       transcript_text: normalizedText,
-      duration_seconds: duration ?? null,
-      language: language?.trim() ?? null,
       word_count: wordCount ?? computedWordCount,
       character_count: normalizedText.length,
-    }),
-    uploadTranscriptToS3(normalizedText),
-  ]);
+    });
 
-  // Store the S3 URL on the record
-  await transcript.update({ transcript_s3_url: transcriptUrl });
+    return existing.toJSON();
+  }
 
-  return { ...transcript.toJSON(), transcript_s3_url: transcriptUrl };
+  const transcript = await AudioTranscript.create({
+    user_id: userId,
+    transcript_text: normalizedText,
+    duration_seconds: duration ?? null,
+    language: language?.trim() ?? null,
+    word_count: wordCount ?? computedWordCount,
+    character_count: normalizedText.length,
+  });
+
+  return transcript.toJSON();
 };
 
 module.exports = {
