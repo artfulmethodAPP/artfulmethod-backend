@@ -5,13 +5,13 @@ const options = {
   definition: {
     openapi: "3.0.0",
     info: {
-      title: "My API",
+      title: "Artful Method API",
       version: "1.0.0",
       description: "API Documentation",
     },
     servers: [
       {
-        url: "https://stephanie-developers-construct-became.trycloudflare.com",
+        url: " https://admission-saver-holders-cash.trycloudflare.com",
         description: "Cloudflare Tunnel",
       },
       {
