@@ -70,6 +70,10 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: false,
       },
+      home_base_course_id: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
       deleted_at: {
         type: DataTypes.DATE,
         allowNull: true,
@@ -98,6 +102,7 @@ module.exports = (sequelize, DataTypes) => {
     });
     User.hasMany(models.UserCourseProgress, { foreignKey: "user_id" });
     User.hasMany(models.UserLessonAttempt, { foreignKey: "user_id" });
+    User.belongsTo(models.Course, { foreignKey: "home_base_course_id", as: "homeBaseCourse" });
   };
 
   return User;

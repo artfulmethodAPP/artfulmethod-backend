@@ -1,5 +1,9 @@
 const { z } = require("zod");
 
+const attemptIdSchema = z.object({
+  attemptId: z.coerce.number().int().positive("attemptId must be a positive integer"),
+});
+
 const courseIdSchema = z.object({
   courseId: z.coerce.number().int().positive("courseId must be a positive integer"),
 });
@@ -71,6 +75,7 @@ const updateLessonContentSchema = z.object({
 });
 
 module.exports = {
+  attemptIdSchema,
   courseIdSchema,
   lessonIdSchema,
   courseLessonParamsSchema,

@@ -3,9 +3,12 @@ const authenticate = require("../middlewares/authenticate.middleware");
 const isAdmin = require("../middlewares/isAdmin.middleware");
 const validate = require("../middlewares/validate");
 const courseImageUploadS3 = require("../middlewares/course-image-s3.middleware");
+const courseAudioUpload = require("../middlewares/course-audio.middleware");
 const {
+  attemptIdSchema,
   courseIdSchema,
   lessonIdSchema,
+  courseLessonParamsSchema,
   createCourseSchema,
   updateCourseSchema,
   createLessonSchema,
@@ -21,6 +24,10 @@ const {
   createLesson,
   getLessons,
   updateLesson,
+  startLesson,
+  completeLesson,
+  getLessonReport,
+  getLessonReportPdf,
   createLessonContent,
   getLessonContent,
   updateLessonContent,
@@ -111,7 +118,13 @@ router.post(
  * /api/v1/courses:
  *   get:
  *     summary: List all courses
- *     description: Returns all courses ordered by sort_order. Each course includes a presigned image URL.
+ *     description: |
+ *       Returns all active courses ordered with the user's **home base course first**, then the
+ *       remaining courses by `sort_order`. Each course includes a presigned image URL, an
+ *       `is_home_base` flag, and a `user_progress` block showing the user's status for that course.
+ *
+ *       **Lock logic:** the home base course is always unlocked. Every subsequent course is locked
+ *       until the previous course is completed.
  *     tags: [Courses]
  *     security:
  *       - bearerAuth: []
@@ -148,8 +161,6 @@ router.post(
  *                             example: "NARRATIVE MAKER"
  *                           description:
  *                             type: string
- *                           image_s3_key:
- *                             type: string
  *                           image_url:
  *                             type: string
  *                             example: "https://s3.amazonaws.com/..."
@@ -157,6 +168,23 @@ router.post(
  *                             type: boolean
  *                           sort_order:
  *                             type: integer
+ *                           is_home_base:
+ *                             type: boolean
+ *                             description: True if this is the user's assigned home base course
+ *                             example: true
+ *                           user_progress:
+ *                             type: object
+ *                             properties:
+ *                               status:
+ *                                 type: string
+ *                                 enum: [locked, not_started, in_progress, completed]
+ *                                 example: "in_progress"
+ *                               lessons_completed:
+ *                                 type: integer
+ *                                 example: 3
+ *                               total_lessons:
+ *                                 type: integer
+ *                                 example: 10
  *       401:
  *         description: Unauthorized
  */
@@ -483,9 +511,83 @@ router.put(
   "/:courseId/lessons/:lessonId",
   authenticate,
   isAdmin,
-  validate(lessonIdSchema, "params"),
+  validate(courseLessonParamsSchema, "params"),
   validate(updateLessonSchema),
   updateLesson,
+);
+
+/**
+ * @swagger
+ * /api/v1/courses/{courseId}/lessons/{lessonId}/start:
+ *   post:
+ *     summary: Start a lesson
+ *     description: |
+ *       Creates a lesson attempt for the authenticated user (idempotent — returns existing attempt if already started).
+ *
+ *       **Lock rules enforced:**
+ *       - A course with `sort_order > 1` cannot be started until the previous course (`sort_order - 1`) is completed.
+ *       - A lesson with `sort_order > 1` cannot be started until the previous lesson (`sort_order - 1`) is completed.
+ *
+ *       Also creates a `UserCourseProgress` row on first lesson of each course.
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: courseId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Course ID
+ *       - in: path
+ *         name: lessonId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Lesson ID
+ *     responses:
+ *       201:
+ *         description: Lesson started (or already in progress)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Lesson started successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     attempt:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: integer
+ *                         user_id:
+ *                           type: integer
+ *                         course_id:
+ *                           type: integer
+ *                         course_lesson_id:
+ *                           type: integer
+ *                         status:
+ *                           type: string
+ *                           enum: [in_progress, completed]
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Course or lesson is locked — previous course/lesson not yet completed
+ *       404:
+ *         description: Course or lesson not found
+ */
+router.post(
+  "/:courseId/lessons/:lessonId/start",
+  authenticate,
+  validate(courseLessonParamsSchema, "params"),
+  startLesson,
 );
 
 // ─── Lesson Content ───────────────────────────────────────────────────────────
@@ -587,7 +689,7 @@ router.post(
   "/:courseId/lessons/:lessonId/content",
   authenticate,
   isAdmin,
-  validate(lessonIdSchema, "params"),
+  validate(courseLessonParamsSchema, "params"),
   courseImageUploadS3.single("image"),
   validate(createLessonContentSchema),
   createLessonContent,
@@ -672,7 +774,7 @@ router.post(
 router.get(
   "/:courseId/lessons/:lessonId/content",
   authenticate,
-  validate(lessonIdSchema, "params"),
+  validate(courseLessonParamsSchema, "params"),
   getLessonContent,
 );
 
@@ -755,10 +857,221 @@ router.put(
   "/:courseId/lessons/:lessonId/content",
   authenticate,
   isAdmin,
-  validate(lessonIdSchema, "params"),
+  validate(courseLessonParamsSchema, "params"),
   courseImageUploadS3.single("image"),
   validate(updateLessonContentSchema),
   updateLessonContent,
+);
+
+// ─── Attempt Routes (declared before /:courseId to avoid param collision) ─────
+
+/**
+ * @swagger
+ * /api/v1/courses/attempts/{attemptId}/complete:
+ *   post:
+ *     summary: Complete a lesson — submit 3 prompt responses (mixed audio + text)
+ *     description: |
+ *       Submit responses for all 3 prompts of a lesson. **Each prompt is independent** — you can
+ *       send an audio file for some prompts and plain text for others in any combination.
+ *
+ *       Always send as **`multipart/form-data`**. For each prompt number N (1, 2, 3):
+ *       - Send `audio_N` as a **binary file** → transcribed via ElevenLabs, audio stored to S3
+ *       - OR send `text_N` as a **plain text field** → used directly, no transcription
+ *
+ *       Every prompt must have one or the other — missing a prompt returns `400`.
+ *
+ *       **Examples:**
+ *       - All audio: `audio_1=<file>`, `audio_2=<file>`, `audio_3=<file>`
+ *       - All text: `text_1="..."`, `text_2="..."`, `text_3="..."`
+ *       - Mixed: `audio_1=<file>`, `text_2="..."`, `audio_3=<file>`
+ *
+ *       **Audio S3 key pattern** (for audit/search):
+ *       `courses/audio/user_{userId}/lesson_{lessonId}/attempt_{attemptId}/prompt_{N}.ext`
+ *
+ *       After all prompts are processed the server will:
+ *       1. Save transcripts + audio keys to `User_Prompt_Responses`
+ *       2. Run Claude archetype analysis across all 3 transcripts
+ *       3. Generate a PDF report — store PDF + JSON to S3
+ *       4. Mark the attempt `completed`, increment `lessons_completed` on course progress
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: attemptId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Lesson attempt ID (returned from POST /start)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             description: |
+ *               For each prompt N (1, 2, 3) send EITHER audio_N (binary) OR text_N (string).
+ *               Any combination is valid. All 3 prompts must be provided.
+ *             properties:
+ *               audio_1:
+ *                 type: string
+ *                 format: binary
+ *                 description: "Audio for prompt 1 (mp3, wav, m4a, webm, ogg, aac — max 50 MB). Takes priority over text_1."
+ *               text_1:
+ *                 type: string
+ *                 description: "Plain text response for prompt 1 (used when audio_1 is not provided)"
+ *                 example: "The painting feels very still, almost like time has stopped..."
+ *               audio_2:
+ *                 type: string
+ *                 format: binary
+ *                 description: "Audio for prompt 2. Takes priority over text_2."
+ *               text_2:
+ *                 type: string
+ *                 description: "Plain text response for prompt 2 (used when audio_2 is not provided)"
+ *                 example: "I notice the light coming from the left window..."
+ *               audio_3:
+ *                 type: string
+ *                 format: binary
+ *                 description: "Audio for prompt 3. Takes priority over text_3."
+ *               text_3:
+ *                 type: string
+ *                 description: "Plain text response for prompt 3 (used when audio_3 is not provided)"
+ *                 example: "It reminds me of a private moment you weren't meant to see..."
+ *     responses:
+ *       200:
+ *         description: Lesson completed and report generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Lesson completed successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     attempt_id:
+ *                       type: integer
+ *                     status:
+ *                       type: string
+ *                       example: completed
+ *       400:
+ *         description: A prompt is missing both audio and text, or exactly 3 prompts not provided
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Attempt not found
+ *       409:
+ *         description: Lesson already completed
+ */
+router.post(
+  "/attempts/:attemptId/complete",
+  authenticate,
+  validate(attemptIdSchema, "params"),
+  courseAudioUpload.fields([
+    { name: "audio_1", maxCount: 1 },
+    { name: "audio_2", maxCount: 1 },
+    { name: "audio_3", maxCount: 1 },
+  ]),
+  completeLesson,
+);
+
+/**
+ * @swagger
+ * /api/v1/courses/attempts/{attemptId}/report:
+ *   get:
+ *     summary: Get lesson report JSON
+ *     description: |
+ *       Returns the cached archetype analysis report for the completed lesson.
+ *       Reads from S3 — Claude is **not** re-run on repeat calls.
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: attemptId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Report retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     report:
+ *                       type: object
+ *                       description: Full archetype analysis result (archetype, teaserCards, quotesAndMeanings, report sections)
+ *       400:
+ *         description: Lesson not yet completed
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Attempt or report not found
+ */
+router.get(
+  "/attempts/:attemptId/report",
+  authenticate,
+  validate(attemptIdSchema, "params"),
+  getLessonReport,
+);
+
+/**
+ * @swagger
+ * /api/v1/courses/attempts/{attemptId}/report/pdf:
+ *   get:
+ *     summary: Get lesson report PDF (presigned URL)
+ *     description: Returns a short-lived presigned S3 URL to download the lesson PDF report.
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: attemptId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: PDF URL generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     pdf_url:
+ *                       type: string
+ *                       example: "https://s3.amazonaws.com/..."
+ *       400:
+ *         description: Lesson not yet completed
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Attempt or PDF not found
+ */
+router.get(
+  "/attempts/:attemptId/report/pdf",
+  authenticate,
+  validate(attemptIdSchema, "params"),
+  getLessonReportPdf,
 );
 
 module.exports = router;

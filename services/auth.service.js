@@ -192,7 +192,7 @@ const verifyOTP = async ({ email, otp_code }) => {
 
 const login = async ({ email, password = "" }) => {
   const user = await User.findOne({ where: { email } });
-
+  console.log(user)
   if (!user || user.deleted_at) {
     throw new AppError(
       "We couldn’t find an account with this email",
@@ -336,7 +336,7 @@ const resetPassword = async ({ token, newPassword }) => {
 
 const generateAuthTokens = async (user) => {
   const accessToken = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, {
-    expiresIn: "15m",
+    expiresIn: "1h",
   });
 
   const refreshToken = jwt.sign({ id: user.id }, JWT_REFRESH_SECRET, {

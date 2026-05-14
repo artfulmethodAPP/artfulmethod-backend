@@ -20,7 +20,7 @@ const createCourse = asyncHandler(async (req, res) => {
 });
 
 const getAllCourses = asyncHandler(async (req, res) => {
-  const courses = await CourseService.getAllCourses();
+  const courses = await CourseService.getAllCourses(req.user.id);
 
   return sendSuccess(res, {
     message: "Courses retrieved successfully",
@@ -30,7 +30,7 @@ const getAllCourses = asyncHandler(async (req, res) => {
 
 const getCourse = asyncHandler(async (req, res) => {
   const { courseId } = req.params;
-  const course = await CourseService.getCourseById(courseId);
+  const course = await CourseService.getCourseById(courseId, req.user.id);
 
   return sendSuccess(res, {
     message: "Course retrieved successfully",
@@ -86,6 +86,81 @@ const updateLesson = asyncHandler(async (req, res) => {
   });
 });
 
+// ─── Start Lesson ─────────────────────────────────────────────────────────────
+
+const startLesson = asyncHandler(async (req, res) => {
+  const { courseId, lessonId } = req.params;
+  const userId = req.user.id;
+
+  const attempt = await CourseService.startLesson(userId, courseId, lessonId);
+
+  return sendSuccess(res, {
+    statusCode: 201,
+    message: "Lesson started successfully",
+    data: { attempt },
+  });
+});
+
+// ─── Complete Lesson ──────────────────────────────────────────────────────────
+
+const completeLesson = asyncHandler(async (req, res) => {
+  const { attemptId } = req.params;
+  const userId = req.user.id;
+
+  // Build a per-prompt descriptor for each of the 3 prompts.
+  // Each prompt can independently be an audio file OR plain text.
+  //
+  // Accepted multipart fields:
+  //   audio_1 / audio_2 / audio_3  → binary file  (takes priority over text field of same number)
+  //   text_1  / text_2  / text_3   → plain text string
+  //
+  // Result: prompts = [
+  //   { promptNumber: 1, file: <multerFile|null>, text: <string|null> },
+  //   { promptNumber: 2, file: <multerFile|null>, text: <string|null> },
+  //   { promptNumber: 3, file: <multerFile|null>, text: <string|null> },
+  // ]
+
+  const namedFiles = (req.files && typeof req.files === "object" && !Array.isArray(req.files))
+    ? req.files
+    : {};
+  const b = req.body || {};
+
+  const prompts = [1, 2, 3].map((n) => {
+    const fileArr = namedFiles[`audio_${n}`];
+    const file = fileArr && fileArr.length ? fileArr[0] : null;
+    // Text falls back: text_N first, then audio_N body field (plain text sent as multipart text)
+    const text = (!file && (b[`text_${n}`] || b[`audio_${n}`])) || null;
+    return { promptNumber: n, file, text };
+  });
+
+  const result = await CourseService.completeLesson(attemptId, userId, { prompts });
+
+  return sendSuccess(res, {
+    message: "Lesson completed successfully",
+    data: result,
+  });
+});
+
+const getLessonReport = asyncHandler(async (req, res) => {
+  const { attemptId } = req.params;
+  const report = await CourseService.getLessonReport(attemptId, req.user.id);
+
+  return sendSuccess(res, {
+    message: "Lesson report retrieved successfully",
+    data: { report },
+  });
+});
+
+const getLessonReportPdf = asyncHandler(async (req, res) => {
+  const { attemptId } = req.params;
+  const data = await CourseService.getLessonReportPdf(attemptId, req.user.id);
+
+  return sendSuccess(res, {
+    message: "Lesson report PDF URL generated",
+    data,
+  });
+});
+
 // ─── Lesson Content ───────────────────────────────────────────────────────────
 
 const createLessonContent = asyncHandler(async (req, res) => {
@@ -106,7 +181,7 @@ const createLessonContent = asyncHandler(async (req, res) => {
 
 const getLessonContent = asyncHandler(async (req, res) => {
   const { lessonId } = req.params;
-  const content = await CourseService.getLessonContent(lessonId);
+  const content = await CourseService.getLessonContent(lessonId, req.user.id);
 
   return sendSuccess(res, {
     message: "Lesson content retrieved successfully",
@@ -137,6 +212,10 @@ module.exports = {
   createLesson,
   getLessons,
   updateLesson,
+  startLesson,
+  completeLesson,
+  getLessonReport,
+  getLessonReportPdf,
   createLessonContent,
   getLessonContent,
   updateLessonContent,

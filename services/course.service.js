@@ -1,4 +1,11 @@
-const { Course, CourseLesson, LessonContent } = require("../models");
+const {
+  Course,
+  CourseLesson,
+  LessonContent,
+  UserCourseProgress,
+  UserLessonAttempt,
+  User,
+} = require("../models");
 const AppError = require("../utils/app-error");
 const { getPresignedUrl } = require("./s3.service");
 
@@ -16,18 +23,70 @@ const createCourse = async (data) => {
     is_active: true,
   });
 
-  return course;
+  // Strip S3 key — even admin responses don't expose internal keys
+  const { image_s3_key: _ik, ...plain } = course.toJSON();
+  return plain;
 };
 
-const getAllCourses = async () => {
-  const courses = await Course.findAll({
-    order: [["sort_order", "ASC"]],
-  });
+const getAllCourses = async (userId) => {
+  const { sequelize } = require("../models");
+  const { QueryTypes } = require("sequelize");
+
+  // 4 parallel queries — no N+1
+  const [user, rawCourses, allProgress, lessonCounts] = await Promise.all([
+    User.findByPk(userId, { attributes: ["id", "home_base_course_id"] }),
+    Course.findAll({ where: { is_active: true }, order: [["sort_order", "ASC"]] }),
+    UserCourseProgress.findAll({ where: { user_id: userId } }),
+    sequelize.query(
+      "SELECT course_id, COUNT(*) AS total FROM Course_Lessons WHERE is_active = true GROUP BY course_id",
+      { type: QueryTypes.SELECT },
+    ),
+  ]);
+  // Build a map of course_id → total active lessons
+  const lessonCountMap = new Map(lessonCounts.map((r) => [r.course_id, Number(r.total)]));
+
+  const homeBaseCourseId = user ? user.home_base_course_id : null;
+  const progressMap = new Map(allProgress.map((p) => [p.course_id, p]));
+
+  // Reorder: home base course first, then the rest in sort_order
+  const courses = [...rawCourses];
+  if (homeBaseCourseId) {
+    const homeIndex = courses.findIndex((c) => c.id === homeBaseCourseId);
+    if (homeIndex > 0) {
+      const [homeCourse] = courses.splice(homeIndex, 1);
+      courses.unshift(homeCourse);
+    }
+  }
 
   const result = await Promise.all(
-    courses.map(async (c) => {
+    courses.map(async (c, index) => {
       const { image_s3_key, ...plain } = c.toJSON();
-      plain.image_url = image_s3_key ? await getPresignedUrl(image_s3_key) : null;
+      plain.image_url = image_s3_key
+        ? await getPresignedUrl(image_s3_key)
+        : null;
+      plain.is_home_base = c.id === homeBaseCourseId;
+
+      const progress = progressMap.get(c.id);
+
+      // Home base (index 0) is always unlocked; subsequent courses require previous completed
+      const isFirst = index === 0;
+      let isLocked = false;
+      if (!isFirst) {
+        const prevCourse = courses[index - 1];
+        const prevProgress = progressMap.get(prevCourse.id);
+        isLocked = !prevProgress || prevProgress.status !== "completed";
+      }
+
+      plain.user_progress = {
+        status: isLocked
+          ? "locked"
+          : progress
+            ? progress.status
+            : "not_started",
+        lessons_completed: progress ? progress.lessons_completed : 0,
+        total_lessons: lessonCountMap.get(c.id) ?? 0,
+      };
+
       return plain;
     }),
   );
@@ -35,15 +94,52 @@ const getAllCourses = async () => {
   return result;
 };
 
-const getCourseById = async (courseId) => {
+const getCourseById = async (courseId, userId) => {
   const course = await Course.findByPk(courseId, {
     include: [{ model: CourseLesson, order: [["sort_order", "ASC"]] }],
   });
 
   if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
 
-  const { image_s3_key, ...plain } = course.toJSON();
+  const { image_s3_key, CourseLessons: lessons, ...plain } = course.toJSON();
   plain.image_url = image_s3_key ? await getPresignedUrl(image_s3_key) : null;
+
+  // Fetch all this user's attempts for this course in one query
+  const attempts = await UserLessonAttempt.findAll({
+    where: { user_id: userId, course_id: courseId },
+  });
+  const attemptMap = new Map(attempts.map((a) => [a.course_lesson_id, a]));
+
+  // Attach per-lesson status using sequential lock logic
+  plain.lessons = (lessons || []).map((lesson, index) => {
+    const attempt = attemptMap.get(lesson.id);
+    const isFirst = index === 0;
+
+    let status;
+    if (attempt?.status === "completed") {
+      status = "completed";
+    } else if (!isFirst) {
+      const prevLesson = lessons[index - 1];
+      const prevAttempt = attemptMap.get(prevLesson.id);
+      const prevCompleted = prevAttempt?.status === "completed";
+      if (!prevCompleted) {
+        status = "locked";
+      } else {
+        status = attempt ? "in_progress" : "not_started";
+      }
+    } else {
+      status = attempt ? "in_progress" : "not_started";
+    }
+
+    return {
+      id: lesson.id,
+      title: lesson.title,
+      sort_order: lesson.sort_order,
+      is_active: lesson.is_active,
+      status,
+      attempt_id: attempt ? attempt.id : null,
+    };
+  });
 
   return plain;
 };
@@ -52,14 +148,22 @@ const updateCourse = async (courseId, data) => {
   const course = await Course.findByPk(courseId);
   if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
 
-  const allowed = ["name", "subtitle", "description", "image_s3_key", "sort_order", "is_active"];
+  const allowed = [
+    "name",
+    "subtitle",
+    "description",
+    "image_s3_key",
+    "sort_order",
+    "is_active",
+  ];
   const updates = {};
   for (const key of allowed) {
     if (data[key] !== undefined) updates[key] = data[key];
   }
 
   await course.update(updates);
-  return course;
+  const { image_s3_key: _ik, ...plain } = course.toJSON();
+  return plain;
 };
 
 // ─── Lessons ─────────────────────────────────────────────────────────────────
@@ -96,7 +200,7 @@ const updateLesson = async (lessonId, data) => {
   const lesson = await CourseLesson.findByPk(lessonId);
   if (!lesson) throw new AppError("Lesson not found", 404, "NOT_FOUND");
 
-  const allowed = ["title", "duration_minutes", "sort_order", "is_active"];
+  const allowed = ["title", "sort_order", "is_active"];
   const updates = {};
   for (const key of allowed) {
     if (data[key] !== undefined) updates[key] = data[key];
@@ -112,10 +216,24 @@ const createLessonContent = async (lessonId, data) => {
   const lesson = await CourseLesson.findByPk(lessonId);
   if (!lesson) throw new AppError("Lesson not found", 404, "NOT_FOUND");
 
-  const existing = await LessonContent.findOne({ where: { course_lesson_id: lessonId } });
-  if (existing) throw new AppError("Lesson content already exists for this lesson. Use update instead.", 409, "CONFLICT");
+  const existing = await LessonContent.findOne({
+    where: { course_lesson_id: lessonId },
+  });
+  if (existing)
+    throw new AppError(
+      "Lesson content already exists for this lesson. Use update instead.",
+      409,
+      "CONFLICT",
+    );
 
-  const { artwork_title, artwork_info, artist_name, years, prompts_json, image_s3_key } = data;
+  const {
+    artwork_title,
+    artwork_info,
+    artist_name,
+    years,
+    prompts_json,
+    image_s3_key,
+  } = data;
 
   if (!image_s3_key) {
     throw new AppError("image_s3_key is required", 400, "VALIDATION_ERROR");
@@ -131,11 +249,65 @@ const createLessonContent = async (lessonId, data) => {
     image_s3_key,
   });
 
-  return content;
+  const { image_s3_key: _ik, ...plain } = content.toJSON();
+  return plain;
 };
 
-const getLessonContent = async (lessonId) => {
-  const content = await LessonContent.findOne({ where: { course_lesson_id: lessonId } });
+const getLessonContent = async (lessonId, userId) => {
+  // Load lesson + user + all courses + progress in parallel to check lock
+  const [lesson, user, allCourses, allProgress] = await Promise.all([
+    CourseLesson.findByPk(lessonId),
+    User.findByPk(userId, { attributes: ["id", "home_base_course_id"] }),
+    Course.findAll({ where: { is_active: true }, order: [["sort_order", "ASC"]] }),
+    UserCourseProgress.findAll({ where: { user_id: userId } }),
+  ]);
+
+  if (!lesson) throw new AppError("Lesson not found", 404, "NOT_FOUND");
+
+  const courseId = lesson.course_id;
+  const course = allCourses.find((c) => c.id === courseId);
+  if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
+
+  // ── Cross-course lock (same logic as startLesson) ──────────────────────────
+  const homeBaseCourseId = user?.home_base_course_id ?? null;
+  const orderedCourses = [...allCourses];
+  if (homeBaseCourseId) {
+    const homeIndex = orderedCourses.findIndex((c) => c.id === homeBaseCourseId);
+    if (homeIndex > 0) {
+      const [homeCourse] = orderedCourses.splice(homeIndex, 1);
+      orderedCourses.unshift(homeCourse);
+    }
+  }
+
+  const progressMap = new Map(allProgress.map((p) => [p.course_id, p]));
+  const courseIndex = orderedCourses.findIndex((c) => c.id === courseId);
+
+  if (courseIndex > 0) {
+    const prevCourse = orderedCourses[courseIndex - 1];
+    const prevProgress = progressMap.get(prevCourse.id);
+    if (!prevProgress || prevProgress.status !== "completed") {
+      throw new AppError("This course is locked", 403, "COURSE_LOCKED");
+    }
+  }
+
+  // ── Sequential lesson lock ─────────────────────────────────────────────────
+  if (lesson.sort_order > 1) {
+    const prevLesson = await CourseLesson.findOne({
+      where: { course_id: courseId, sort_order: lesson.sort_order - 1 },
+    });
+    if (prevLesson) {
+      const prevAttempt = await UserLessonAttempt.findOne({
+        where: { user_id: userId, course_lesson_id: prevLesson.id },
+      });
+      if (!prevAttempt || prevAttempt.status !== "completed") {
+        throw new AppError("This lesson is locked", 403, "LESSON_LOCKED");
+      }
+    }
+  }
+
+  const content = await LessonContent.findOne({
+    where: { course_lesson_id: lessonId },
+  });
   if (!content) throw new AppError("Lesson content not found", 404, "NOT_FOUND");
 
   const { image_s3_key, ...plain } = content.toJSON();
@@ -145,17 +317,365 @@ const getLessonContent = async (lessonId) => {
 };
 
 const updateLessonContent = async (lessonId, data) => {
-  const content = await LessonContent.findOne({ where: { course_lesson_id: lessonId } });
-  if (!content) throw new AppError("Lesson content not found", 404, "NOT_FOUND");
+  const content = await LessonContent.findOne({
+    where: { course_lesson_id: lessonId },
+  });
+  if (!content)
+    throw new AppError("Lesson content not found", 404, "NOT_FOUND");
 
-  const allowed = ["artwork_title", "artwork_info", "artist_name", "years", "prompts_json", "image_s3_key"];
+  const allowed = [
+    "artwork_title",
+    "artwork_info",
+    "artist_name",
+    "years",
+    "prompts_json",
+    "image_s3_key",
+  ];
   const updates = {};
   for (const key of allowed) {
     if (data[key] !== undefined) updates[key] = data[key];
   }
 
   await content.update(updates);
-  return content;
+  const { image_s3_key: _ik, ...plain } = content.toJSON();
+  return plain;
+};
+
+// ─── Start Lesson (with cross-course + sequential lesson lock) ───────────────
+
+const startLesson = async (userId, courseId, lessonId) => {
+  // Load user, all courses, and all progress in parallel
+  const [user, allCourses, allProgress, lesson] = await Promise.all([
+    User.findByPk(userId, { attributes: ["id", "home_base_course_id"] }),
+    Course.findAll({ where: { is_active: true }, order: [["sort_order", "ASC"]] }),
+    UserCourseProgress.findAll({ where: { user_id: userId } }),
+    CourseLesson.findOne({ where: { id: lessonId, course_id: courseId } }),
+  ]);
+
+  // Validate target lesson exists in the requested course
+  const course = allCourses.find((c) => c.id === Number(courseId));
+  if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
+  if (!lesson) throw new AppError("Lesson not found in this course", 404, "NOT_FOUND");
+
+  // ── Cross-course lock ────────────────────────────────────────────────────────
+  // Build the user-facing course order: home base first, then rest by sort_order.
+  // This mirrors getAllCourses so the lock logic is consistent with what the UI shows.
+  const homeBaseCourseId = user?.home_base_course_id ?? null;
+  const orderedCourses = [...allCourses];
+  if (homeBaseCourseId) {
+    const homeIndex = orderedCourses.findIndex((c) => c.id === homeBaseCourseId);
+    if (homeIndex > 0) {
+      const [homeCourse] = orderedCourses.splice(homeIndex, 1);
+      orderedCourses.unshift(homeCourse);
+    }
+  }
+
+  const progressMap = new Map(allProgress.map((p) => [p.course_id, p]));
+  const courseIndex = orderedCourses.findIndex((c) => c.id === Number(courseId));
+
+  // Position 0 (home base or first in order) is always unlocked.
+  // Any subsequent course requires the previous one to be completed.
+  if (courseIndex > 0) {
+    const prevCourse = orderedCourses[courseIndex - 1];
+    const prevProgress = progressMap.get(prevCourse.id);
+    if (!prevProgress || prevProgress.status !== "completed") {
+      throw new AppError(
+        "You must complete the previous course before starting this one",
+        403,
+        "COURSE_LOCKED",
+      );
+    }
+  }
+
+  // ── Sequential lesson lock ───────────────────────────────────────────────────
+  // Lesson at sort_order 1 is always unlocked within its course.
+  // Lesson N requires lesson N-1 (by sort_order) to be completed.
+  if (lesson.sort_order > 1) {
+    const prevLesson = await CourseLesson.findOne({
+      where: { course_id: courseId, sort_order: lesson.sort_order - 1 },
+    });
+    if (prevLesson) {
+      const prevAttempt = await UserLessonAttempt.findOne({
+        where: { user_id: userId, course_lesson_id: prevLesson.id },
+      });
+      if (!prevAttempt || prevAttempt.status !== "completed") {
+        throw new AppError(
+          "You must complete the previous lesson before starting this one",
+          403,
+          "LESSON_LOCKED",
+        );
+      }
+    }
+  }
+
+  // Upsert UserCourseProgress (created on first lesson of each course)
+  await UserCourseProgress.findOrCreate({
+    where: { user_id: userId, course_id: courseId },
+    defaults: { lessons_completed: 0, status: "in_progress" },
+  });
+
+  // Upsert UserLessonAttempt (idempotent — returns existing if already started)
+  const [attempt] = await UserLessonAttempt.findOrCreate({
+    where: { user_id: userId, course_lesson_id: lessonId },
+    defaults: { course_id: courseId, status: "in_progress" },
+  });
+
+  // Strip internal S3 keys — never expose these to end users
+  const { report_s3_key: _rk, report_json_s3_key: _rjk, ...attemptPlain } = attempt.toJSON();
+  return attemptPlain;
+};
+
+// ─── Complete Lesson — mixed audio+text per prompt, archetype analysis, S3 ───
+//
+// prompts = [
+//   { promptNumber: 1, file: <multerMemoryFile|null>, text: <string|null> },
+//   { promptNumber: 2, file: <multerMemoryFile|null>, text: <string|null> },
+//   { promptNumber: 3, file: <multerMemoryFile|null>, text: <string|null> },
+// ]
+//
+// Each prompt is handled independently:
+//   - file present  → transcribe via ElevenLabs + upload audio to S3
+//   - text present  → use text directly, no audio
+//   - neither       → validation error for that prompt
+//
+// S3 audio key pattern (searchable by user / lesson / attempt / prompt):
+//   courses/audio/user_{userId}/lesson_{lessonId}/attempt_{attemptId}/prompt_{n}.<ext>
+//
+const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
+  const { analyzeLessonArchetype } = require("./archetype.service");
+  const { generateReportPdf, uploadReportPdfToS3 } = require("./pdf.service");
+  const { PutObjectCommand } = require("@aws-sdk/client-s3");
+  const s3 = require("../config/s3.config");
+  const axios = require("axios");
+  const FormData = require("form-data");
+  const path = require("path");
+
+  // Validate: must have exactly 3 prompts, each with either a file or text
+  if (!Array.isArray(prompts) || prompts.length !== 3) {
+    throw new AppError("Exactly 3 prompt responses are required", 400, "VALIDATION_ERROR");
+  }
+  for (const p of prompts) {
+    if (!p.file && !p.text) {
+      throw new AppError(
+        `Prompt ${p.promptNumber} requires either an audio file (audio_${p.promptNumber}) or text (text_${p.promptNumber})`,
+        400,
+        "VALIDATION_ERROR",
+      );
+    }
+  }
+
+  // 1. Load + validate attempt
+  const attempt = await UserLessonAttempt.findOne({
+    where: { id: attemptId, user_id: userId },
+  });
+  if (!attempt) throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
+  if (attempt.status === "completed") throw new AppError("Lesson already completed", 409, "CONFLICT");
+
+  const lessonId = attempt.course_lesson_id;
+
+  // ElevenLabs transcription helper
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+
+  const transcribeFile = async (file) => {
+    if (!apiKey) throw new AppError("ElevenLabs API key not configured", 500, "ELEVENLABS_NOT_CONFIGURED");
+    const formData = new FormData();
+    formData.append("file", file.buffer, {
+      filename: file.originalname || "audio.webm",
+      contentType: file.mimetype,
+    });
+    formData.append("model_id", "scribe_v1");
+    const res = await axios
+      .post("https://api.elevenlabs.io/v1/speech-to-text", formData, {
+        headers: { ...formData.getHeaders(), "xi-api-key": apiKey },
+      })
+      .catch((err) => {
+        if (err.response?.status === 401)
+          throw new AppError("ElevenLabs API key invalid", 500, "ELEVENLABS_NOT_CONFIGURED");
+        throw new AppError(
+          err.response?.data?.detail?.message || "ElevenLabs transcription failed",
+          500,
+          "TRANSCRIPTION_FAILED",
+        );
+      });
+    return res.data.text || "";
+  };
+
+  // S3 audio upload helper — clean, searchable key
+  const uploadAudio = async (file, promptNumber) => {
+    const ext = path.extname(file.originalname || ".webm").replace(/^\./, "") || "webm";
+    // Pattern: courses/audio/user_{userId}/lesson_{lessonId}/attempt_{attemptId}/prompt_{n}.ext
+    const key = `courses/audio/user_${userId}/lesson_${lessonId}/attempt_${attemptId}/prompt_${promptNumber}.${ext}`;
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: process.env.AWS_BUCKET,
+        Key: key,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      }),
+    );
+    return key;
+  };
+
+  // 2. Process all 3 prompts in parallel — each independently audio or text
+  const promptResults = await Promise.all(
+    prompts.map(async ({ promptNumber, file, text }) => {
+      if (file) {
+        // Audio prompt: transcribe + upload simultaneously
+        const [transcript, audioKey] = await Promise.all([
+          transcribeFile(file),
+          uploadAudio(file, promptNumber),
+        ]);
+        return { promptNumber, transcript, audioKey };
+      } else {
+        // Text prompt: use directly, no audio
+        return { promptNumber, transcript: text.trim(), audioKey: null };
+      }
+    }),
+  );
+
+  // Sort by promptNumber to ensure consistent order
+  promptResults.sort((a, b) => a.promptNumber - b.promptNumber);
+
+  const transcripts = promptResults.map((r) => r.transcript);
+
+  // 3. Save prompt responses (upsert by attempt + prompt_number)
+  const { UserPromptResponse } = require("../models");
+  await Promise.all(
+    promptResults.map(({ promptNumber, transcript, audioKey }) =>
+      UserPromptResponse.upsert({
+        user_lesson_attempt_id: attemptId,
+        prompt_number: promptNumber,
+        transcript_text: transcript,
+        audio_s3_key: audioKey,
+        submitted_at: new Date(),
+      }),
+    ),
+  );
+
+  // 3. Run lesson archetype analysis — passes all 3 transcripts separately
+  const analysisResult = await analyzeLessonArchetype({ transcripts });
+
+  // 4. Upload JSON report + generate PDF in parallel
+  //    PDF generation reuses the existing onboarding PDF layout for now
+  const jsonKey = `courses/reports/json/${randomUUID()}.json`;
+  const jsonStr = JSON.stringify(analysisResult);
+
+  // Build the perception framework as a readable string for the PDF
+  const perceptionFrameworkBody = [
+    analysisResult.perceptionFramework.intro,
+    "",
+    ...analysisResult.perceptionFramework.archetypes.map(
+      (a) => `${a.name} · ${a.subtitle}\n${a.description}`,
+    ),
+  ].join("\n\n");
+
+  // Cover archetype shows primary + secondary (e.g. "The Framer & The Artist")
+  const pdfArchetype = {
+    name: `${analysisResult.archetype.name} & ${analysisResult.secondaryArchetype.name}`,
+    subtitle: `${analysisResult.archetype.subtitle} · ${analysisResult.secondaryArchetype.subtitle}`,
+  };
+
+  const [pdfBuffer] = await Promise.all([
+    generateReportPdf({
+      archetype: pdfArchetype,
+      teaserCards: [],
+      quotesAndMeanings: analysisResult.promptInsights.flatMap((p) => p.quotes),
+      report: {
+        intro: analysisResult.intro,
+        sections: [
+          ...analysisResult.promptInsights.map((p) => ({
+            heading: `What You Said · What It Reveals · Prompt ${p.prompt_number}`,
+            body: p.quotes.map((q) => `"${q.quote}"\n${q.meaning}`).join("\n\n"),
+          })),
+          { heading: "The Perception Framework", body: perceptionFrameworkBody },
+          { heading: "Moving Across Your Range", body: analysisResult.movingAcrossYourRange },
+          { heading: "How might this growth show up?", body: analysisResult.howMightThisGrowthShowUp },
+        ],
+      },
+    }),
+    s3.send(
+      new PutObjectCommand({
+        Bucket: process.env.AWS_BUCKET,
+        Key: jsonKey,
+        Body: jsonStr,
+        ContentType: "application/json",
+      }),
+    ),
+  ]);
+
+  const pdfKey = await uploadReportPdfToS3(pdfBuffer);
+
+  // 5. Mark attempt completed, store both S3 keys
+  await attempt.update({
+    status: "completed",
+    completed_at: new Date(),
+    report_s3_key: pdfKey,
+    report_json_s3_key: jsonKey,
+  });
+
+  // 6. Increment lessons_completed on UserCourseProgress
+  await UserCourseProgress.increment("lessons_completed", {
+    where: { user_id: userId, course_id: attempt.course_id },
+  });
+
+  return { attempt_id: attempt.id, status: "completed" };
+};
+
+// ─── Get Lesson Report — return cached JSON from S3 (no Claude re-run) ────────
+
+const getLessonReport = async (attemptId, userId) => {
+  const { GetObjectCommand } = require("@aws-sdk/client-s3");
+  const s3 = require("../config/s3.config");
+
+  const attempt = await UserLessonAttempt.findOne({
+    where: { id: attemptId, user_id: userId },
+  });
+  if (!attempt) throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
+  if (attempt.status !== "completed") throw new AppError("Lesson not yet completed", 400, "NOT_COMPLETED");
+  if (!attempt.report_json_s3_key) throw new AppError("Report not available", 404, "NOT_FOUND");
+
+  // Stream JSON from S3 and parse
+  const s3Res = await s3.send(
+    new GetObjectCommand({ Bucket: process.env.AWS_BUCKET, Key: attempt.report_json_s3_key }),
+  );
+
+  const chunks = [];
+  for await (const chunk of s3Res.Body) chunks.push(chunk);
+  const report = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+
+  return report;
+};
+
+// ─── Get Lesson Report PDF presigned URL ─────────────────────────────────────
+
+const getLessonReportPdf = async (attemptId, userId) => {
+  const attempt = await UserLessonAttempt.findOne({
+    where: { id: attemptId, user_id: userId },
+  });
+  if (!attempt) throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
+  if (attempt.status !== "completed") throw new AppError("Lesson not yet completed", 400, "NOT_COMPLETED");
+  if (!attempt.report_s3_key) throw new AppError("PDF report not available", 404, "NOT_FOUND");
+
+  const pdf_url = await getPresignedUrl(attempt.report_s3_key);
+  return { pdf_url };
+};
+
+// ─── Home Base Course Assignment ─────────────────────────────────────────────
+
+const setHomeBaseCourse = async (userId, archetypeName) => {
+  // Only set once — skip if already assigned
+  const user = await User.findByPk(userId);
+  if (!user || user.home_base_course_id) return;
+
+  // Find the course whose name contains the archetype name (case-insensitive)
+  const { Op } = require("sequelize");
+  const course = await Course.findOne({
+    where: { name: { [Op.like]: `%${archetypeName}%` } },
+  });
+
+  if (course) {
+    await user.update({ home_base_course_id: course.id });
+  }
 };
 
 module.exports = {
@@ -169,11 +689,9 @@ module.exports = {
   createLessonContent,
   getLessonContent,
   updateLessonContent,
+  startLesson,
+  completeLesson,
+  getLessonReport,
+  getLessonReportPdf,
+  setHomeBaseCourse,
 };
-
-
-
-
-
-
-

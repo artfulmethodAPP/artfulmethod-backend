@@ -8,6 +8,7 @@ const {
 } = require("../services/pdf.service");
 const { computeStreak } = require("../services/auth.service");
 const { AiReport } = require("../models");
+const { setHomeBaseCourse } = require("../services/course.service");
 
 /**
  * POST /api/v1/archetype/analyze
@@ -44,6 +45,9 @@ const analyzeTranscript = asyncHandler(async (req, res) => {
     pdf_s3_key: pdfS3Key,
     error_message: errorMessage,
   });
+
+  // Assign home base course on first archetype result (fire-and-forget, non-blocking)
+  setHomeBaseCourse(userId, result.archetype.name).catch(() => {});
 
   return sendSuccess(res, {
     statusCode: 200,
