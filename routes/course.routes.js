@@ -109,7 +109,7 @@ const router = express.Router();
 router.post(
   "/",
   authenticate,
-  isAdmin,
+  // isAdmin,
   courseImageUploadS3.single("image"),
   validate(createCourseSchema),
   createCourse,
