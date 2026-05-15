@@ -93,4 +93,112 @@ const sendResetPasswordLinkEmail = async (email, resetLink, user_id) => {
   }
 };
 
-module.exports = { sendOTPEmail, sendResetPasswordLinkEmail };
+// ─── Lesson Report Email ──────────────────────────────────────────────────────
+
+const sendLessonReportEmail = async ({ userId, email, lessonTitle, lessonNumber, pdfBuffer }) => {
+  const subject = `Your Lesson ${lessonNumber} Report — ${lessonTitle}`;
+  try {
+    await transporter.sendMail({
+      from: FROM_ADDRESS,
+      to: email,
+      subject,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; color: #111; background: #fafafa;">
+          <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #1A1A1A;">Your Lesson ${lessonNumber} Report</h2>
+          <p style="font-size: 14px; color: #444; margin-bottom: 6px;">
+            You've completed <strong>${lessonTitle}</strong>.
+          </p>
+          <p style="font-size: 14px; color: #444; margin-bottom: 24px;">
+            Your personal Aesthetic Archetype report for this lesson is attached as a PDF.
+            It's yours to keep — you can return to it any time.
+          </p>
+          <p style="font-size: 12px; color: #888; margin-top: 32px;">© ${new Date().getFullYear()} Artful Method</p>
+        </div>
+      `,
+      attachments: [
+        {
+          filename: `ArtfulMethod-Lesson-${lessonNumber}-Report.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+
+    await EmailLog.create({
+      user_id: userId,
+      email,
+      email_type: "report",
+      subject,
+      status: "sent",
+      sent_at: new Date(),
+    });
+  } catch (error) {
+    console.error("[sendLessonReportEmail] error:", error.message);
+    await EmailLog.create({
+      user_id: userId,
+      email,
+      email_type: "report",
+      subject,
+      status: "failed",
+      error_message: error.message,
+      sent_at: new Date(),
+    }).catch(() => {});
+    // Non-fatal — lesson completion must not fail due to email
+  }
+};
+
+// ─── Course Report Email (Growth in Range) ────────────────────────────────────
+
+const sendCourseReportEmail = async ({ userId, email, courseName, pdfBuffer }) => {
+  const subject = `Your Growth in Range Report — ${courseName}`;
+  try {
+    await transporter.sendMail({
+      from: FROM_ADDRESS,
+      to: email,
+      subject,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; color: #111; background: #fafafa;">
+          <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #1A1A1A;">Your Growth in Range Report</h2>
+          <p style="font-size: 14px; color: #444; margin-bottom: 6px;">
+            Congratulations — you've completed <strong>${courseName}</strong>.
+          </p>
+          <p style="font-size: 14px; color: #444; margin-bottom: 24px;">
+            Your full Growth in Range report is attached as a PDF. It maps how you moved across
+            all five aesthetic archetypes throughout the course — yours to keep and revisit.
+          </p>
+          <p style="font-size: 12px; color: #888; margin-top: 32px;">© ${new Date().getFullYear()} Artful Method</p>
+        </div>
+      `,
+      attachments: [
+        {
+          filename: `ArtfulMethod-${courseName.replace(/\s+/g, "-")}-GrowthInRange-Report.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+
+    await EmailLog.create({
+      user_id: userId,
+      email,
+      email_type: "report",
+      subject,
+      status: "sent",
+      sent_at: new Date(),
+    });
+  } catch (error) {
+    console.error("[sendCourseReportEmail] error:", error.message);
+    await EmailLog.create({
+      user_id: userId,
+      email,
+      email_type: "report",
+      subject,
+      status: "failed",
+      error_message: error.message,
+      sent_at: new Date(),
+    }).catch(() => {});
+    // Non-fatal — course report response must not fail due to email
+  }
+};
+
+module.exports = { sendOTPEmail, sendResetPasswordLinkEmail, sendLessonReportEmail, sendCourseReportEmail };

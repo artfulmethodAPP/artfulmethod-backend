@@ -28,6 +28,8 @@ const {
   completeLesson,
   getLessonReport,
   getLessonReportPdf,
+  getCourseReport,
+  getCourseReportPdf,
   createLessonContent,
   getLessonContent,
   updateLessonContent,
@@ -1072,6 +1074,164 @@ router.get(
   authenticate,
   validate(attemptIdSchema, "params"),
   getLessonReportPdf,
+);
+
+// ─── Course Report (Growth in Range) ──────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/v1/courses/{courseId}/report:
+ *   get:
+ *     summary: Get Growth in Range course report
+ *     description: |
+ *       Returns the full Growth in Range (GiR) report for a completed course — a synthesis of all
+ *       10 lesson transcripts showing how the user moves across the five aesthetic archetypes.
+ *
+ *       **Locked until all 10 lessons are completed.** Returns `403` if the course is not yet done.
+ *
+ *       The report is cached as JSON in S3 after the first call — Claude is **not** re-run on
+ *       repeat requests.
+ *
+ *       **Report sections:**
+ *       - `home_base` — dominant archetype across all lessons
+ *       - `range_modes` — other archetypes observed
+ *       - `absent_modes` — archetypes never expressed
+ *       - `mode_counts` — frequency map per archetype
+ *       - `report.fixed_intro` — static introductory paragraph
+ *       - `report.how_you_see` — summary of the user's perceptual home base
+ *       - `report.quotes_and_meanings` — verbatim quotes + VTS commentary, per lesson
+ *       - `report.your_range` — thematic synthesis across the range of archetypes
+ *       - `report.absent_modes_sentence` — one sentence about absent modes
+ *       - `report.how_might_this_show_up` — practical implications
+ *       - `report.home_base_archetype_description` — archetype description from design system
+ *       - `pdf_url` — presigned S3 URL to download the full PDF report
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: courseId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Course ID
+ *     responses:
+ *       200:
+ *         description: Course report retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Course report retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     home_base:
+ *                       type: string
+ *                       example: "Storyteller"
+ *                     range_modes:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["Framer", "Archivist"]
+ *                     absent_modes:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["Artist", "Integrator"]
+ *                     mode_counts:
+ *                       type: object
+ *                       example: { "Storyteller": 6, "Framer": 3, "Archivist": 1 }
+ *                     report:
+ *                       type: object
+ *                       properties:
+ *                         fixed_intro:
+ *                           type: string
+ *                         how_you_see:
+ *                           type: string
+ *                         quotes_and_meanings:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                         your_range:
+ *                           type: string
+ *                         absent_modes_sentence:
+ *                           type: string
+ *                         how_might_this_show_up:
+ *                           type: string
+ *                         home_base_archetype_description:
+ *                           type: string
+ *                     pdf_url:
+ *                       type: string
+ *                       example: "https://s3.amazonaws.com/..."
+ *       403:
+ *         description: Course not yet completed — all 10 lessons must be finished first
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Course not found or no progress record
+ */
+router.get(
+  "/:courseId/report",
+  authenticate,
+  validate(courseIdSchema, "params"),
+  getCourseReport,
+);
+
+/**
+ * @swagger
+ * /api/v1/courses/{courseId}/report/pdf:
+ *   get:
+ *     summary: Get Growth in Range course report PDF (presigned URL)
+ *     description: |
+ *       Returns a short-lived presigned S3 URL to download the Growth in Range PDF report.
+ *       The course must be completed and the report must have been generated first via
+ *       `GET /courses/:courseId/report`.
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: courseId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Course ID
+ *     responses:
+ *       200:
+ *         description: PDF URL generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     pdf_url:
+ *                       type: string
+ *                       example: "https://s3.amazonaws.com/..."
+ *       403:
+ *         description: Course not yet completed
+ *       404:
+ *         description: PDF not yet generated — call GET /courses/:courseId/report first
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/:courseId/report/pdf",
+  authenticate,
+  validate(courseIdSchema, "params"),
+  getCourseReportPdf,
 );
 
 module.exports = router;

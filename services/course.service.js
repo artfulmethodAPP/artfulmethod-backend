@@ -44,7 +44,6 @@ const getAllCourses = async (userId) => {
   ]);
   // Build a map of course_id → total active lessons
   const lessonCountMap = new Map(lessonCounts.map((r) => [r.course_id, Number(r.total)]));
-
   const homeBaseCourseId = user ? user.home_base_course_id : null;
   const progressMap = new Map(allProgress.map((p) => [p.course_id, p]));
 
@@ -445,6 +444,7 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
   const { analyzeLessonArchetype } = require("./archetype.service");
   const { generateReportPdf, uploadReportPdfToS3 } = require("./pdf.service");
   const { PutObjectCommand } = require("@aws-sdk/client-s3");
+  const { randomUUID } = require("crypto");
   const s3 = require("../config/s3.config");
   const axios = require("axios");
   const FormData = require("form-data");
@@ -464,10 +464,11 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     }
   }
 
-  // 1. Load + validate attempt
-  const attempt = await UserLessonAttempt.findOne({
-    where: { id: attemptId, user_id: userId },
-  });
+  // 1. Load + validate attempt + fetch user email and lesson title in parallel
+  const [attempt, user] = await Promise.all([
+    UserLessonAttempt.findOne({ where: { id: attemptId, user_id: userId } }),
+    User.findByPk(userId, { attributes: ["id", "email"] }),
+  ]);
   if (!attempt) throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
   if (attempt.status === "completed") throw new AppError("Lesson already completed", 409, "CONFLICT");
 
@@ -613,15 +614,30 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     report_json_s3_key: jsonKey,
   });
 
-  // 6. Increment lessons_completed on UserCourseProgress
-  await UserCourseProgress.increment("lessons_completed", {
-    where: { user_id: userId, course_id: attempt.course_id },
-  });
+  // 6. Increment lessons_completed on UserCourseProgress + fetch lesson title for email in parallel
+  const [, lesson] = await Promise.all([
+    UserCourseProgress.increment("lessons_completed", {
+      where: { user_id: userId, course_id: attempt.course_id },
+    }),
+    CourseLesson.findByPk(lessonId, { attributes: ["title", "lesson_number"] }),
+  ]);
+
+  // 7. Send lesson report email with PDF attached — fire-and-forget (non-fatal)
+  if (user?.email) {
+    const { sendLessonReportEmail } = require("./email.service");
+    sendLessonReportEmail({
+      userId,
+      email: user.email,
+      lessonTitle: lesson?.title ?? `Lesson ${lesson?.lesson_number ?? ""}`,
+      lessonNumber: lesson?.lesson_number ?? "",
+      pdfBuffer,
+    });
+  }
 
   return { attempt_id: attempt.id, status: "completed" };
 };
 
-// ─── Get Lesson Report — return cached JSON from S3 (no Claude re-run) ────────
+// ─── Get Lesson Report — return cached JSON from S3 + artwork image URL ──────
 
 const getLessonReport = async (attemptId, userId) => {
   const { GetObjectCommand } = require("@aws-sdk/client-s3");
@@ -634,14 +650,30 @@ const getLessonReport = async (attemptId, userId) => {
   if (attempt.status !== "completed") throw new AppError("Lesson not yet completed", 400, "NOT_COMPLETED");
   if (!attempt.report_json_s3_key) throw new AppError("Report not available", 404, "NOT_FOUND");
 
-  // Stream JSON from S3 and parse
-  const s3Res = await s3.send(
-    new GetObjectCommand({ Bucket: process.env.AWS_BUCKET, Key: attempt.report_json_s3_key }),
-  );
+  // Fetch JSON from S3 + artwork content in parallel
+  const [s3Res, lessonContent] = await Promise.all([
+    s3.send(new GetObjectCommand({ Bucket: process.env.AWS_BUCKET, Key: attempt.report_json_s3_key })),
+    LessonContent.findOne({ where: { course_lesson_id: attempt.course_lesson_id } }),
+  ]);
 
   const chunks = [];
   for await (const chunk of s3Res.Body) chunks.push(chunk);
   const report = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+
+  // Attach presigned artwork image URL so frontend can display the artwork alongside the report
+  report.artwork_image_url = lessonContent?.image_s3_key
+    ? await getPresignedUrl(lessonContent.image_s3_key)
+    : null;
+
+  // Attach artwork metadata (title, artist, info) for display above the report
+  report.artwork = lessonContent
+    ? {
+        title: lessonContent.artwork_title ?? null,
+        artist_name: lessonContent.artist_name ?? null,
+        years: lessonContent.years ?? null,
+        info: lessonContent.artwork_info ?? null,
+      }
+    : null;
 
   return report;
 };
@@ -657,6 +689,166 @@ const getLessonReportPdf = async (attemptId, userId) => {
   if (!attempt.report_s3_key) throw new AppError("PDF report not available", 404, "NOT_FOUND");
 
   const pdf_url = await getPresignedUrl(attempt.report_s3_key);
+  return { pdf_url };
+};
+
+// ─── Course Report (Growth in Range) ─────────────────────────────────────────
+//
+// GET /api/v1/courses/:courseId/report
+//
+// Rules:
+//   - All lessons in this course must be completed (status = 'completed')
+//   - If course_report_s3_key already exists → return cached JSON from S3 (no Claude re-run)
+//   - Otherwise → run GiR pipeline, store JSON + PDF to S3, cache the keys
+//
+const getCourseReport = async (courseId, userId) => {
+  const { GetObjectCommand, PutObjectCommand } = require("@aws-sdk/client-s3");
+  const { randomUUID } = require("crypto");
+  const s3 = require("../config/s3.config");
+  const { analyzeGrowthInRange } = require("./archetype.service");
+  const { generateReportPdf, uploadReportPdfToS3 } = require("./pdf.service");
+  const { UserPromptResponse } = require("../models");
+
+  // 1. Load course + progress + user email in parallel
+  const [course, progress, user] = await Promise.all([
+    Course.findByPk(courseId),
+    UserCourseProgress.findOne({ where: { user_id: userId, course_id: courseId } }),
+    User.findByPk(userId, { attributes: ["id", "email"] }),
+  ]);
+
+  if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
+  if (!progress) throw new AppError("You have not started this course", 400, "NOT_STARTED");
+  if (progress.status !== "completed") {
+    throw new AppError(
+      "All lessons must be completed before the course report is available",
+      403,
+      "COURSE_NOT_COMPLETED",
+    );
+  }
+
+  // 2. Cache hit — return stored JSON from S3
+  if (progress.course_report_s3_key) {
+    const s3Res = await s3.send(
+      new GetObjectCommand({ Bucket: process.env.AWS_BUCKET, Key: progress.course_report_s3_key }),
+    );
+    const chunks = [];
+    for await (const chunk of s3Res.Body) chunks.push(chunk);
+    const report = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+    const pdf_url = progress.course_report_pdf_s3_key
+      ? await getPresignedUrl(progress.course_report_pdf_s3_key)
+      : null;
+    return { report, pdf_url };
+  }
+
+  // 3. Fetch all completed attempts for this course
+  const attempts = await UserLessonAttempt.findAll({
+    where: { user_id: userId, course_id: courseId, status: "completed" },
+    order: [["course_lesson_id", "ASC"]],
+  });
+
+  if (attempts.length < 10) {
+    throw new AppError(
+      `Expected 10 completed lessons but found ${attempts.length}`,
+      400,
+      "INCOMPLETE_LESSONS",
+    );
+  }
+
+  // 4. Load all prompt responses for all attempts in parallel
+  const allResponses = await Promise.all(
+    attempts.map((a) =>
+      UserPromptResponse.findAll({
+        where: { user_lesson_attempt_id: a.id },
+        order: [["prompt_number", "ASC"]],
+      }),
+    ),
+  );
+
+  // 5. Build lesson transcripts — join 3 prompts per lesson with separator
+  const lessons = attempts.map((attempt, idx) => {
+    const responses = allResponses[idx] || [];
+    const transcript = responses
+      .filter((r) => r.transcript_text)
+      .sort((a, b) => a.prompt_number - b.prompt_number)
+      .map((r) => r.transcript_text)
+      .join("\n\n---\n\n");
+    return { lesson_number: idx + 1, transcript_text: transcript };
+  });
+
+  // 6. Run GiR pipeline
+  const girResult = await analyzeGrowthInRange({ lessons });
+
+  // 7. Store JSON + generate PDF in parallel
+  const jsonKey = `courses/reports/gir/json/${randomUUID()}.json`;
+  const jsonStr = JSON.stringify(girResult);
+
+  const [pdfBuffer] = await Promise.all([
+    generateReportPdf({
+      archetype: {
+        name: `Growth in Range — ${girResult.home_base}`,
+        subtitle: `Home base: ${girResult.home_base} · Range: ${girResult.range_modes.join(", ") || "none"}`,
+      },
+      teaserCards: [],
+      quotesAndMeanings: girResult.report.quotes_and_meanings.map((q) => ({
+        quote: q.quote,
+        meaning: q.vts_commentary,
+      })),
+      report: {
+        intro: girResult.report.fixed_intro,
+        sections: [
+          { heading: "How You See", body: girResult.report.how_you_see },
+          ...girResult.report.your_range.map((r) => ({
+            heading: `Your Range — ${r.mode}`,
+            body: r.paragraph,
+          })),
+          { heading: "Absent Modes", body: girResult.report.absent_modes_sentence },
+          { heading: "How might this show up?", body: girResult.report.how_might_this_show_up },
+        ],
+      },
+    }),
+    s3.send(
+      new PutObjectCommand({
+        Bucket: process.env.AWS_BUCKET,
+        Key: jsonKey,
+        Body: jsonStr,
+        ContentType: "application/json",
+      }),
+    ),
+  ]);
+
+  const pdfKey = await uploadReportPdfToS3(pdfBuffer);
+
+  // 8. Cache keys on UserCourseProgress
+  await progress.update({
+    course_report_s3_key: jsonKey,
+    course_report_pdf_s3_key: pdfKey,
+  });
+
+  const pdf_url = await getPresignedUrl(pdfKey);
+
+  // 9. Send course report email with PDF attached — fire-and-forget (non-fatal)
+  if (user?.email) {
+    const { sendCourseReportEmail } = require("./email.service");
+    sendCourseReportEmail({
+      userId,
+      email: user.email,
+      courseName: course.name,
+      pdfBuffer,
+    });
+  }
+
+  return { report: girResult, pdf_url };
+};
+
+const getCourseReportPdf = async (courseId, userId) => {
+  const progress = await UserCourseProgress.findOne({
+    where: { user_id: userId, course_id: courseId },
+  });
+  if (!progress) throw new AppError("Course progress not found", 404, "NOT_FOUND");
+  if (progress.status !== "completed") throw new AppError("Course not yet completed", 400, "NOT_COMPLETED");
+  if (!progress.course_report_pdf_s3_key) throw new AppError("Course report PDF not yet generated — call GET /report first", 404, "NOT_FOUND");
+
+  const pdf_url = await getPresignedUrl(progress.course_report_pdf_s3_key);
   return { pdf_url };
 };
 
@@ -693,5 +885,7 @@ module.exports = {
   completeLesson,
   getLessonReport,
   getLessonReportPdf,
+  getCourseReport,
+  getCourseReportPdf,
   setHomeBaseCourse,
 };

@@ -161,6 +161,28 @@ const getLessonReportPdf = asyncHandler(async (req, res) => {
   });
 });
 
+// ─── Course Report (Growth in Range) ─────────────────────────────────────────
+
+const getCourseReport = asyncHandler(async (req, res) => {
+  const { courseId } = req.params;
+  const data = await CourseService.getCourseReport(courseId, req.user.id);
+
+  return sendSuccess(res, {
+    message: "Course report retrieved successfully",
+    data,
+  });
+});
+
+const getCourseReportPdf = asyncHandler(async (req, res) => {
+  const { courseId } = req.params;
+  const data = await CourseService.getCourseReportPdf(courseId, req.user.id);
+
+  return sendSuccess(res, {
+    message: "Course report PDF URL generated",
+    data,
+  });
+});
+
 // ─── Lesson Content ───────────────────────────────────────────────────────────
 
 const createLessonContent = asyncHandler(async (req, res) => {
@@ -216,6 +238,8 @@ module.exports = {
   completeLesson,
   getLessonReport,
   getLessonReportPdf,
+  getCourseReport,
+  getCourseReportPdf,
   createLessonContent,
   getLessonContent,
   updateLessonContent,

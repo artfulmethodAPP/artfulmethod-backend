@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: " https://admission-saver-holders-cash.trycloudflare.com",
+        url: "https://focusing-carries-horn-selection.trycloudflare.com",
         description: "Cloudflare Tunnel",
       },
       {
