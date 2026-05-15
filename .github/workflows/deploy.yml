@@ -179,11 +179,12 @@ jobs:
 
             echo "Running after hooks for ${{ needs.setup-env.outputs.env-name }}"
 
-            # Run database migrations on the primary server
+            # Run database migrations and seeders on the primary server
             if [ "${{ matrix.server.type }}" = "primary" ]; then
               cd $ACTIVE_RELEASE_PATH
               export $(grep -v '^#' .env | xargs)
               npx sequelize-cli db:migrate
+              npx sequelize-cli db:seed --seed 20260516000000-seed-courses.js
             fi
 
   clean-up:
