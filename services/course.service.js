@@ -619,7 +619,7 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     UserCourseProgress.increment("lessons_completed", {
       where: { user_id: userId, course_id: attempt.course_id },
     }),
-    CourseLesson.findByPk(lessonId, { attributes: ["title", "lesson_number"] }),
+    CourseLesson.findByPk(lessonId, { attributes: ["title", "sort_order"] }),
   ]);
 
   // 7. Send lesson report email with PDF attached — fire-and-forget (non-fatal)
@@ -628,8 +628,8 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     sendLessonReportEmail({
       userId,
       email: user.email,
-      lessonTitle: lesson?.title ?? `Lesson ${lesson?.lesson_number ?? ""}`,
-      lessonNumber: lesson?.lesson_number ?? "",
+      lessonTitle: lesson?.title ?? `Lesson ${lesson?.sort_order ?? ""}`,
+      lessonNumber: lesson?.sort_order ?? "",
       pdfBuffer,
     });
   }
