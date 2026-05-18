@@ -94,6 +94,13 @@ const updateEmailPreference = asyncHandler(async (req, res) => {
   });
 });
 
+const hardDeleteAccount = asyncHandler(async (req, res) => {
+  await authService.hardDeleteAccount(req.user.id);
+  return sendSuccess(res, {
+    message: "Account permanently deleted",
+  });
+});
+
 module.exports = {
   createUser,
   loginUser,
@@ -106,4 +113,5 @@ module.exports = {
   updateEmailPreference,
   checkEmail,
   deleteAccount,
+  hardDeleteAccount,
 };

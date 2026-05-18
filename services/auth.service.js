@@ -473,6 +473,20 @@ const deleteAccount = async (userId) => {
   await user.update({ deleted_at: new Date() });
 };
 
+const hardDeleteAccount = async (userId) => {
+  const user = await User.findByPk(userId);
+
+  if (!user) {
+    throw new AppError("User not found", 404, "NOT_FOUND");
+  }
+
+  // Revoke all tokens first so existing sessions stop working immediately
+  await UserToken.destroy({ where: { user_id: userId } });
+
+  // Permanently destroy the user row — cascades handle related records via FK ON DELETE CASCADE
+  await user.destroy({ force: true });
+};
+
 const checkEmail = async (email) => {
   const user = await User.findOne({ where: { email, deleted_at: null } });
   if (user) {
@@ -496,5 +510,6 @@ module.exports = {
   updateEmailPreference,
   checkEmail,
   deleteAccount,
+  hardDeleteAccount,
   computeStreak,
 };

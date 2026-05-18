@@ -13,6 +13,7 @@ const {
   updateEmailPreference,
   checkEmail,
   deleteAccount,
+  hardDeleteAccount,
 } = require("../controller/auth.controller");
 
 const validate = require("../middlewares/validate");
@@ -395,5 +396,38 @@ router.patch("/preferences", authenticate, updateEmailPreference);
  *         description: Unauthorized
  */
 router.delete("/me", authenticate, deleteAccount);
+
+/**
+ * @swagger
+ * /api/v1/auth/me/hard:
+ *   delete:
+ *     summary: Permanently delete account (hard delete)
+ *     description: |
+ *       Permanently removes the authenticated user's account and all associated data from the database.
+ *       This action is irreversible. All active sessions are revoked immediately before deletion.
+ *       Related records (tokens, course progress, lesson attempts, prompt responses) are removed via cascade.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Account permanently deleted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Account permanently deleted
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: User not found
+ */
+router.delete("/me/hard", authenticate, hardDeleteAccount);
 
 module.exports = router;
