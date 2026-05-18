@@ -26,7 +26,12 @@ const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const addPageBackground = (doc) => {
+  doc.save();
   doc.rect(0, 0, PAGE_WIDTH, doc.page.height).fill(COLOURS.darkBg);
+  doc.restore();
+  // Reset default text colour to white so no text ever renders black-on-black
+  doc.fillColor(COLOURS.white).strokeColor(COLOURS.white);
+  doc.y = MARGIN;
 };
 
 const drawDivider = (doc, yOffset = 0) => {
@@ -52,8 +57,6 @@ const drawGoldAccent = (doc, x, y, width = 30) => {
 // ─── Cover page ───────────────────────────────────────────────────────────────
 
 const drawCoverPage = (doc, archetype) => {
-  addPageBackground(doc);
-
   // Top decorative line
   doc
     .moveTo(MARGIN, 80)
@@ -137,7 +140,6 @@ const drawCoverPage = (doc, archetype) => {
 
 const drawTeaserPage = (doc, teaserCards) => {
   doc.addPage();
-  addPageBackground(doc);
 
   doc
     .font("Helvetica")
@@ -184,7 +186,6 @@ const drawTeaserPage = (doc, teaserCards) => {
 
 const drawQuotesPage = (doc, quotesAndMeanings) => {
   doc.addPage();
-  addPageBackground(doc);
 
   doc
     .font("Helvetica")
@@ -202,8 +203,6 @@ const drawQuotesPage = (doc, quotesAndMeanings) => {
     // Check remaining space — start a new page if needed
     if (doc.y > doc.page.height - 160) {
       doc.addPage();
-      addPageBackground(doc);
-      doc.y = MARGIN + 20;
     }
 
     const blockStartY = doc.y;
@@ -268,7 +267,6 @@ const drawQuotesPage = (doc, quotesAndMeanings) => {
 const drawReportPages = (doc, report) => {
   // Intro page
   doc.addPage();
-  addPageBackground(doc);
 
   doc
     .font("Helvetica")
@@ -293,8 +291,6 @@ const drawReportPages = (doc, report) => {
     // Page break guard — leave at least 100 pt for heading + first line
     if (doc.y > doc.page.height - 120) {
       doc.addPage();
-      addPageBackground(doc);
-      doc.y = MARGIN + 20;
     }
 
     // Section heading
@@ -328,7 +324,6 @@ const drawReportPages = (doc, report) => {
 
 const drawBackCover = (doc) => {
   doc.addPage();
-  addPageBackground(doc);
 
   // Centre vertically
   const midY = doc.page.height / 2 - 40;
@@ -381,6 +376,7 @@ const generateReportPdf = (result) => {
     const doc = new PDFDocument({
       size: "A4",
       margin: MARGIN,
+      autoFirstPage: false,
       info: {
         Title: `Aesthetic Archetype Report — ${archetype.name}`,
         Author: "Artful Method",
@@ -392,7 +388,13 @@ const generateReportPdf = (result) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
+    // Fill every page with the dark background automatically
+    doc.on("pageAdded", () => {
+      addPageBackground(doc);
+    });
+
     // ── Page 1: Cover
+    doc.addPage();
     drawCoverPage(doc, archetype);
 
     // ── Page 2: Teaser cards

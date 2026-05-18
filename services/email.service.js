@@ -1,5 +1,5 @@
 const transporter = require("../config/email.config");
-const { EmailLog } = require("../models");
+const { EmailLog, User } = require("../models");
 const AppError = require("../utils/app-error");
 
 const FROM_ADDRESS = "noreply@notification.artfulmethod.org";
@@ -96,6 +96,9 @@ const sendResetPasswordLinkEmail = async (email, resetLink, user_id) => {
 // ─── Lesson Report Email ──────────────────────────────────────────────────────
 
 const sendLessonReportEmail = async ({ userId, email, lessonTitle, lessonNumber, pdfBuffer }) => {
+  const user = await User.findByPk(userId, { attributes: ["email_reports_enabled"] });
+  if (!user?.email_reports_enabled) return;
+
   const subject = `Your Lesson ${lessonNumber} Report — ${lessonTitle}`;
   try {
     await transporter.sendMail({
@@ -150,6 +153,9 @@ const sendLessonReportEmail = async ({ userId, email, lessonTitle, lessonNumber,
 // ─── Course Report Email (Growth in Range) ────────────────────────────────────
 
 const sendCourseReportEmail = async ({ userId, email, courseName, pdfBuffer }) => {
+  const user = await User.findByPk(userId, { attributes: ["email_reports_enabled"] });
+  if (!user?.email_reports_enabled) return;
+
   const subject = `Your Growth in Range Report — ${courseName}`;
   try {
     await transporter.sendMail({

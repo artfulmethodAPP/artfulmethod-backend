@@ -8,6 +8,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 const JWT_RESET_SECRET = process.env.JWT_RESET_SECRET || JWT_SECRET;
 const { sendOTPEmail, sendResetPasswordLinkEmail } = require("./email.service");
+const e = require("cors");
 
 // =====================
 // Helper Functions
@@ -121,6 +122,7 @@ const register = async ({
       name: existingUser.name,
       dob: existingUser.dob,
       created_at: existingUser.created_at,
+      email_reports_enabled: existingUser.email_reports_enabled,
     };
   }
 
@@ -150,6 +152,7 @@ const register = async ({
     name: user.name,
     dob: user.dob,
     created_at: user.created_at,
+    email_reports_enabled: user.email_reports_enabled,
   };
 };
 
@@ -234,6 +237,7 @@ const login = async ({ email, password = "" }) => {
       role: user.role,
       gender: user.gender,
       dob: user.dob,
+      email_reports_enabled: user.email_reports_enabled,
     },
     tokens,
   };
@@ -445,6 +449,16 @@ const updatePersonalInfo = async (userId, { name, dob }) => {
   };
 };
 
+const updateEmailPreference = async (userId, email_reports_enabled) => {
+  const user = await User.findOne({ where: { id: userId, deleted_at: null } });
+
+  if (!user) throw new AppError("User not found", 404, "NOT_FOUND");
+
+  await user.update({ email_reports_enabled });
+
+  return { email_reports_enabled: user.email_reports_enabled };
+};
+
 const deleteAccount = async (userId) => {
   const user = await User.findOne({ where: { id: userId, deleted_at: null } });
 
@@ -479,6 +493,7 @@ module.exports = {
   refreshAuth,
   logout,
   updatePersonalInfo,
+  updateEmailPreference,
   checkEmail,
   deleteAccount,
   computeStreak,

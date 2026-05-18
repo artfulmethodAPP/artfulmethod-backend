@@ -10,6 +10,7 @@ const {
   forgotPassword,
   resetPassword,
   updatePersonalInfo,
+  updateEmailPreference,
   checkEmail,
   deleteAccount,
 } = require("../controller/auth.controller");
@@ -336,6 +337,44 @@ router.post("/reset-password", validate(resetPasswordSchema), resetPassword);
  *         description: Unauthorized
  */
 router.patch("/personal-info", authenticate, validate(updatePersonalInfoSchema), updatePersonalInfo);
+
+/**
+ * @swagger
+ * /api/v1/auth/preferences:
+ *   patch:
+ *     summary: Update email report preferences
+ *     description: Toggle whether the user receives PDF reports via email after each lesson and course completion.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email_reports_enabled
+ *             properties:
+ *               email_reports_enabled:
+ *                 type: boolean
+ *                 example: false
+ *     responses:
+ *       200:
+ *         description: Preference updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 email_reports_enabled:
+ *                   type: boolean
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ */
+router.patch("/preferences", authenticate, updateEmailPreference);
 
 /**
  * @swagger

@@ -85,6 +85,15 @@ const updatePersonalInfo = asyncHandler(async (req, res) => {
   });
 });
 
+const updateEmailPreference = asyncHandler(async (req, res) => {
+  const { email_reports_enabled } = req.body;
+  const result = await authService.updateEmailPreference(req.user.id, email_reports_enabled);
+  return sendSuccess(res, {
+    message: "Email preference updated successfully",
+    data: result,
+  });
+});
+
 module.exports = {
   createUser,
   loginUser,
@@ -94,6 +103,7 @@ module.exports = {
   forgotPassword,
   resetPassword,
   updatePersonalInfo,
+  updateEmailPreference,
   checkEmail,
   deleteAccount,
 };

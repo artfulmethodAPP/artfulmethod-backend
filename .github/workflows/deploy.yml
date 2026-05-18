@@ -184,7 +184,7 @@ jobs:
               cd $ACTIVE_RELEASE_PATH
               export $(grep -v '^#' .env | xargs)
               npx sequelize-cli db:migrate
-              npx sequelize-cli db:seed --seed 20260516000004-fix-integrator-column-swap.js
+              npx sequelize-cli db:seed --seed 20260519000001-seed-admin-user.js
             fi
 
   clean-up:
