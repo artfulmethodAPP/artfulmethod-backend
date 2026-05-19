@@ -35,7 +35,10 @@ const getAllCourses = async (userId) => {
   // 4 parallel queries — no N+1
   const [user, rawCourses, allProgress, lessonCounts] = await Promise.all([
     User.findByPk(userId, { attributes: ["id", "home_base_course_id"] }),
-    Course.findAll({ where: { is_active: true }, order: [["sort_order", "ASC"]] }),
+    Course.findAll({
+      where: { is_active: true },
+      order: [["sort_order", "ASC"]],
+    }),
     UserCourseProgress.findAll({ where: { user_id: userId } }),
     sequelize.query(
       "SELECT course_id, COUNT(*) AS total FROM Course_Lessons WHERE is_active = true GROUP BY course_id",
@@ -43,7 +46,9 @@ const getAllCourses = async (userId) => {
     ),
   ]);
   // Build a map of course_id → total active lessons
-  const lessonCountMap = new Map(lessonCounts.map((r) => [r.course_id, Number(r.total)]));
+  const lessonCountMap = new Map(
+    lessonCounts.map((r) => [r.course_id, Number(r.total)]),
+  );
   const homeBaseCourseId = user ? user.home_base_course_id : null;
   const progressMap = new Map(allProgress.map((p) => [p.course_id, p]));
 
@@ -257,7 +262,10 @@ const getLessonContent = async (lessonId, userId) => {
   const [lesson, user, allCourses, allProgress] = await Promise.all([
     CourseLesson.findByPk(lessonId),
     User.findByPk(userId, { attributes: ["id", "home_base_course_id"] }),
-    Course.findAll({ where: { is_active: true }, order: [["sort_order", "ASC"]] }),
+    Course.findAll({
+      where: { is_active: true },
+      order: [["sort_order", "ASC"]],
+    }),
     UserCourseProgress.findAll({ where: { user_id: userId } }),
   ]);
 
@@ -271,7 +279,9 @@ const getLessonContent = async (lessonId, userId) => {
   const homeBaseCourseId = user?.home_base_course_id ?? null;
   const orderedCourses = [...allCourses];
   if (homeBaseCourseId) {
-    const homeIndex = orderedCourses.findIndex((c) => c.id === homeBaseCourseId);
+    const homeIndex = orderedCourses.findIndex(
+      (c) => c.id === homeBaseCourseId,
+    );
     if (homeIndex > 0) {
       const [homeCourse] = orderedCourses.splice(homeIndex, 1);
       orderedCourses.unshift(homeCourse);
@@ -307,7 +317,8 @@ const getLessonContent = async (lessonId, userId) => {
   const content = await LessonContent.findOne({
     where: { course_lesson_id: lessonId },
   });
-  if (!content) throw new AppError("Lesson content not found", 404, "NOT_FOUND");
+  if (!content)
+    throw new AppError("Lesson content not found", 404, "NOT_FOUND");
 
   const { image_s3_key, ...plain } = content.toJSON();
   plain.image_url = image_s3_key ? await getPresignedUrl(image_s3_key) : null;
@@ -346,7 +357,10 @@ const startLesson = async (userId, courseId, lessonId) => {
   // Load user, all courses, and all progress in parallel
   const [user, allCourses, allProgress, lesson] = await Promise.all([
     User.findByPk(userId, { attributes: ["id", "home_base_course_id"] }),
-    Course.findAll({ where: { is_active: true }, order: [["sort_order", "ASC"]] }),
+    Course.findAll({
+      where: { is_active: true },
+      order: [["sort_order", "ASC"]],
+    }),
     UserCourseProgress.findAll({ where: { user_id: userId } }),
     CourseLesson.findOne({ where: { id: lessonId, course_id: courseId } }),
   ]);
@@ -354,7 +368,8 @@ const startLesson = async (userId, courseId, lessonId) => {
   // Validate target lesson exists in the requested course
   const course = allCourses.find((c) => c.id === Number(courseId));
   if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
-  if (!lesson) throw new AppError("Lesson not found in this course", 404, "NOT_FOUND");
+  if (!lesson)
+    throw new AppError("Lesson not found in this course", 404, "NOT_FOUND");
 
   // ── Cross-course lock ────────────────────────────────────────────────────────
   // Build the user-facing course order: home base first, then rest by sort_order.
@@ -362,7 +377,9 @@ const startLesson = async (userId, courseId, lessonId) => {
   const homeBaseCourseId = user?.home_base_course_id ?? null;
   const orderedCourses = [...allCourses];
   if (homeBaseCourseId) {
-    const homeIndex = orderedCourses.findIndex((c) => c.id === homeBaseCourseId);
+    const homeIndex = orderedCourses.findIndex(
+      (c) => c.id === homeBaseCourseId,
+    );
     if (homeIndex > 0) {
       const [homeCourse] = orderedCourses.splice(homeIndex, 1);
       orderedCourses.unshift(homeCourse);
@@ -370,7 +387,9 @@ const startLesson = async (userId, courseId, lessonId) => {
   }
 
   const progressMap = new Map(allProgress.map((p) => [p.course_id, p]));
-  const courseIndex = orderedCourses.findIndex((c) => c.id === Number(courseId));
+  const courseIndex = orderedCourses.findIndex(
+    (c) => c.id === Number(courseId),
+  );
 
   // Position 0 (home base or first in order) is always unlocked.
   // Any subsequent course requires the previous one to be completed.
@@ -420,7 +439,11 @@ const startLesson = async (userId, courseId, lessonId) => {
   });
 
   // Strip internal S3 keys — never expose these to end users
-  const { report_s3_key: _rk, report_json_s3_key: _rjk, ...attemptPlain } = attempt.toJSON();
+  const {
+    report_s3_key: _rk,
+    report_json_s3_key: _rjk,
+    ...attemptPlain
+  } = attempt.toJSON();
   return attemptPlain;
 };
 
@@ -452,7 +475,11 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
 
   // Validate: must have exactly 3 prompts, each with either a file or text
   if (!Array.isArray(prompts) || prompts.length !== 3) {
-    throw new AppError("Exactly 3 prompt responses are required", 400, "VALIDATION_ERROR");
+    throw new AppError(
+      "Exactly 3 prompt responses are required",
+      400,
+      "VALIDATION_ERROR",
+    );
   }
   for (const p of prompts) {
     if (!p.file && !p.text) {
@@ -469,8 +496,10 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     UserLessonAttempt.findOne({ where: { id: attemptId, user_id: userId } }),
     User.findByPk(userId, { attributes: ["id", "email"] }),
   ]);
-  if (!attempt) throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
-  if (attempt.status === "completed") throw new AppError("Lesson already completed", 409, "CONFLICT");
+  if (!attempt)
+    throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
+  if (attempt.status === "completed")
+    throw new AppError("Lesson already completed", 409, "CONFLICT");
 
   const lessonId = attempt.course_lesson_id;
 
@@ -478,7 +507,12 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
   const apiKey = process.env.ELEVENLABS_API_KEY;
 
   const transcribeFile = async (file) => {
-    if (!apiKey) throw new AppError("ElevenLabs API key not configured", 500, "ELEVENLABS_NOT_CONFIGURED");
+    if (!apiKey)
+      throw new AppError(
+        "ElevenLabs API key not configured",
+        500,
+        "ELEVENLABS_NOT_CONFIGURED",
+      );
     const formData = new FormData();
     formData.append("file", file.buffer, {
       filename: file.originalname || "audio.webm",
@@ -491,9 +525,14 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
       })
       .catch((err) => {
         if (err.response?.status === 401)
-          throw new AppError("ElevenLabs API key invalid", 500, "ELEVENLABS_NOT_CONFIGURED");
+          throw new AppError(
+            "ElevenLabs API key invalid",
+            500,
+            "ELEVENLABS_NOT_CONFIGURED",
+          );
         throw new AppError(
-          err.response?.data?.detail?.message || "ElevenLabs transcription failed",
+          err.response?.data?.detail?.message ||
+            "ElevenLabs transcription failed",
           500,
           "TRANSCRIPTION_FAILED",
         );
@@ -503,7 +542,8 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
 
   // S3 audio upload helper — clean, searchable key
   const uploadAudio = async (file, promptNumber) => {
-    const ext = path.extname(file.originalname || ".webm").replace(/^\./, "") || "webm";
+    const ext =
+      path.extname(file.originalname || ".webm").replace(/^\./, "") || "webm";
     // Pattern: courses/audio/user_{userId}/lesson_{lessonId}/attempt_{attemptId}/prompt_{n}.ext
     const key = `courses/audio/user_${userId}/lesson_${lessonId}/attempt_${attemptId}/prompt_${promptNumber}.${ext}`;
     await s3.send(
@@ -586,11 +626,22 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
         sections: [
           ...analysisResult.promptInsights.map((p) => ({
             heading: `What You Said · What It Reveals · Prompt ${p.prompt_number}`,
-            body: p.quotes.map((q) => `"${q.quote}"\n${q.meaning}`).join("\n\n"),
+            body: p.quotes
+              .map((q) => `"${q.quote}"\n${q.meaning}`)
+              .join("\n\n"),
           })),
-          { heading: "The Perception Framework", body: perceptionFrameworkBody },
-          { heading: "Moving Across Your Range", body: analysisResult.movingAcrossYourRange },
-          { heading: "How might this growth show up?", body: analysisResult.howMightThisGrowthShowUp },
+          {
+            heading: "The Perception Framework",
+            body: perceptionFrameworkBody,
+          },
+          {
+            heading: "Moving Across Your Range",
+            body: analysisResult.movingAcrossYourRange,
+          },
+          {
+            heading: "How might this growth show up?",
+            body: analysisResult.howMightThisGrowthShowUp,
+          },
         ],
       },
     }),
@@ -614,13 +665,22 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     report_json_s3_key: jsonKey,
   });
 
-  // 6. Increment lessons_completed on UserCourseProgress + fetch lesson title for email in parallel
-  const [, lesson] = await Promise.all([
+  // 6. Increment lessons_completed on UserCourseProgress + fetch lesson + total lesson count in parallel
+  const [, lesson, totalLessons] = await Promise.all([
     UserCourseProgress.increment("lessons_completed", {
       where: { user_id: userId, course_id: attempt.course_id },
     }),
     CourseLesson.findByPk(lessonId, { attributes: ["title", "sort_order"] }),
+    CourseLesson.count({ where: { course_id: attempt.course_id, is_active: true } }),
   ]);
+
+  // 6b. Auto-complete the course if all lessons are now done
+  const updatedProgress = await UserCourseProgress.findOne({
+    where: { user_id: userId, course_id: attempt.course_id },
+  });
+  if (updatedProgress && updatedProgress.lessons_completed >= totalLessons) {
+    await updatedProgress.update({ status: "completed", completed_at: new Date() });
+  }
 
   // 7. Send lesson report email with PDF attached — fire-and-forget (non-fatal)
   if (user?.email) {
@@ -646,14 +706,24 @@ const getLessonReport = async (attemptId, userId) => {
   const attempt = await UserLessonAttempt.findOne({
     where: { id: attemptId, user_id: userId },
   });
-  if (!attempt) throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
-  if (attempt.status !== "completed") throw new AppError("Lesson not yet completed", 400, "NOT_COMPLETED");
-  if (!attempt.report_json_s3_key) throw new AppError("Report not available", 404, "NOT_FOUND");
+  if (!attempt)
+    throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
+  if (attempt.status !== "completed")
+    throw new AppError("Lesson not yet completed", 400, "NOT_COMPLETED");
+  if (!attempt.report_json_s3_key)
+    throw new AppError("Report not available", 404, "NOT_FOUND");
 
   // Fetch JSON from S3 + artwork content in parallel
   const [s3Res, lessonContent] = await Promise.all([
-    s3.send(new GetObjectCommand({ Bucket: process.env.AWS_BUCKET, Key: attempt.report_json_s3_key })),
-    LessonContent.findOne({ where: { course_lesson_id: attempt.course_lesson_id } }),
+    s3.send(
+      new GetObjectCommand({
+        Bucket: process.env.AWS_BUCKET,
+        Key: attempt.report_json_s3_key,
+      }),
+    ),
+    LessonContent.findOne({
+      where: { course_lesson_id: attempt.course_lesson_id },
+    }),
   ]);
 
   const chunks = [];
@@ -684,9 +754,12 @@ const getLessonReportPdf = async (attemptId, userId) => {
   const attempt = await UserLessonAttempt.findOne({
     where: { id: attemptId, user_id: userId },
   });
-  if (!attempt) throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
-  if (attempt.status !== "completed") throw new AppError("Lesson not yet completed", 400, "NOT_COMPLETED");
-  if (!attempt.report_s3_key) throw new AppError("PDF report not available", 404, "NOT_FOUND");
+  if (!attempt)
+    throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
+  if (attempt.status !== "completed")
+    throw new AppError("Lesson not yet completed", 400, "NOT_COMPLETED");
+  if (!attempt.report_s3_key)
+    throw new AppError("PDF report not available", 404, "NOT_FOUND");
 
   const pdf_url = await getPresignedUrl(attempt.report_s3_key);
   return { pdf_url };
@@ -712,12 +785,15 @@ const getCourseReport = async (courseId, userId) => {
   // 1. Load course + progress + user email in parallel
   const [course, progress, user] = await Promise.all([
     Course.findByPk(courseId),
-    UserCourseProgress.findOne({ where: { user_id: userId, course_id: courseId } }),
+    UserCourseProgress.findOne({
+      where: { user_id: userId, course_id: courseId },
+    }),
     User.findByPk(userId, { attributes: ["id", "email"] }),
   ]);
 
   if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
-  if (!progress) throw new AppError("You have not started this course", 400, "NOT_STARTED");
+  if (!progress)
+    throw new AppError("You have not started this course", 400, "NOT_STARTED");
   if (progress.status !== "completed") {
     throw new AppError(
       "All lessons must be completed before the course report is available",
@@ -729,7 +805,10 @@ const getCourseReport = async (courseId, userId) => {
   // 2. Cache hit — return stored JSON from S3
   if (progress.course_report_s3_key) {
     const s3Res = await s3.send(
-      new GetObjectCommand({ Bucket: process.env.AWS_BUCKET, Key: progress.course_report_s3_key }),
+      new GetObjectCommand({
+        Bucket: process.env.AWS_BUCKET,
+        Key: progress.course_report_s3_key,
+      }),
     );
     const chunks = [];
     for await (const chunk of s3Res.Body) chunks.push(chunk);
@@ -746,12 +825,8 @@ const getCourseReport = async (courseId, userId) => {
     order: [["course_lesson_id", "ASC"]],
   });
 
-  if (attempts.length < 10) {
-    throw new AppError(
-      `Expected 10 completed lessons but found ${attempts.length}`,
-      400,
-      "INCOMPLETE_LESSONS",
-    );
+  if (attempts.length === 0) {
+    throw new AppError("No completed lessons found for this course", 400, "INCOMPLETE_LESSONS");
   }
 
   // 4. Load all prompt responses for all attempts in parallel
@@ -801,8 +876,14 @@ const getCourseReport = async (courseId, userId) => {
             heading: `Your Range — ${r.mode}`,
             body: r.paragraph,
           })),
-          { heading: "Absent Modes", body: girResult.report.absent_modes_sentence },
-          { heading: "How might this show up?", body: girResult.report.how_might_this_show_up },
+          {
+            heading: "Absent Modes",
+            body: girResult.report.absent_modes_sentence,
+          },
+          {
+            heading: "How might this show up?",
+            body: girResult.report.how_might_this_show_up,
+          },
         ],
       },
     }),
@@ -844,9 +925,16 @@ const getCourseReportPdf = async (courseId, userId) => {
   const progress = await UserCourseProgress.findOne({
     where: { user_id: userId, course_id: courseId },
   });
-  if (!progress) throw new AppError("Course progress not found", 404, "NOT_FOUND");
-  if (progress.status !== "completed") throw new AppError("Course not yet completed", 400, "NOT_COMPLETED");
-  if (!progress.course_report_pdf_s3_key) throw new AppError("Course report PDF not yet generated — call GET /report first", 404, "NOT_FOUND");
+  if (!progress)
+    throw new AppError("Course progress not found", 404, "NOT_FOUND");
+  if (progress.status !== "completed")
+    throw new AppError("Course not yet completed", 400, "NOT_COMPLETED");
+  if (!progress.course_report_pdf_s3_key)
+    throw new AppError(
+      "Course report PDF not yet generated — call GET /report first",
+      404,
+      "NOT_FOUND",
+    );
 
   const pdf_url = await getPresignedUrl(progress.course_report_pdf_s3_key);
   return { pdf_url };

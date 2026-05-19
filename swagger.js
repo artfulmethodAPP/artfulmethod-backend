@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: "https://focusing-carries-horn-selection.trycloudflare.com",
+        url: "https://theft-organic-numeric-deaths.trycloudflare.com",
         description: "Cloudflare Tunnel",
       },
       {

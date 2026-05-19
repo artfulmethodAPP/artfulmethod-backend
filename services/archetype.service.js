@@ -911,10 +911,10 @@ Rules:
 - Output only the paragraph body — no heading`;
 
 const analyzeGrowthInRange = async ({ lessons }) => {
-  // lessons = [{ lesson_number: 1, transcript_text: "..." }, ...] — exactly 10
-  if (!Array.isArray(lessons) || lessons.length !== 10) {
+  // lessons = [{ lesson_number: 1, transcript_text: "..." }, ...]
+  if (!Array.isArray(lessons) || lessons.length === 0) {
     const AppError = require("../utils/app-error");
-    throw new AppError("Exactly 10 lesson transcripts are required for the Growth in Range report", 400, "VALIDATION_ERROR");
+    throw new AppError("No lesson transcripts found for the Growth in Range report", 400, "VALIDATION_ERROR");
   }
 
   const anthropic = client();
