@@ -184,8 +184,7 @@ jobs:
               cd $ACTIVE_RELEASE_PATH
               export $(grep -v '^#' .env | xargs)
               npx sequelize-cli db:migrate
-              npx sequelize-cli db:seed --seed 20260519000001-seed-admin-user.js
-              npx sequelize-cli db:seed --seed 20260519000002-fix-lesson7-image-s3-key.js
+              node scripts/backfill-report-json.js
             fi
 
   clean-up:

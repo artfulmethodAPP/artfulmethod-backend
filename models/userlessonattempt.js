@@ -38,6 +38,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.TEXT,
         allowNull: true,
       },
+      report_json: {
+        type: DataTypes.JSON,
+        allowNull: true,
+      },
     },
     {
       tableName: "User_Lesson_Attempts",

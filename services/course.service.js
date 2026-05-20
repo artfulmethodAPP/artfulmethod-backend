@@ -657,12 +657,13 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
 
   const pdfKey = await uploadReportPdfToS3(pdfBuffer);
 
-  // 5. Mark attempt completed, store both S3 keys
+  // 5. Mark attempt completed, store S3 keys + JSON in DB
   await attempt.update({
     status: "completed",
     completed_at: new Date(),
     report_s3_key: pdfKey,
     report_json_s3_key: jsonKey,
+    report_json: analysisResult,
   });
 
   // 6. Increment lessons_completed on UserCourseProgress + fetch lesson + total lesson count in parallel
@@ -700,9 +701,6 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
 // ─── Get Lesson Report — return cached JSON from S3 + artwork image URL ──────
 
 const getLessonReport = async (attemptId, userId) => {
-  const { GetObjectCommand } = require("@aws-sdk/client-s3");
-  const s3 = require("../config/s3.config");
-
   const attempt = await UserLessonAttempt.findOne({
     where: { id: attemptId, user_id: userId },
   });
@@ -710,25 +708,30 @@ const getLessonReport = async (attemptId, userId) => {
     throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
   if (attempt.status !== "completed")
     throw new AppError("Lesson not yet completed", 400, "NOT_COMPLETED");
-  if (!attempt.report_json_s3_key)
+  if (!attempt.report_json && !attempt.report_json_s3_key)
     throw new AppError("Report not available", 404, "NOT_FOUND");
 
-  // Fetch JSON from S3 + artwork content in parallel
-  const [s3Res, lessonContent] = await Promise.all([
-    s3.send(
+  // Read from DB if available, fall back to S3 for older records
+  let report;
+  if (attempt.report_json) {
+    report = attempt.report_json;
+  } else {
+    const { GetObjectCommand } = require("@aws-sdk/client-s3");
+    const s3 = require("../config/s3.config");
+    const s3Res = await s3.send(
       new GetObjectCommand({
         Bucket: process.env.AWS_BUCKET,
         Key: attempt.report_json_s3_key,
       }),
-    ),
-    LessonContent.findOne({
-      where: { course_lesson_id: attempt.course_lesson_id },
-    }),
-  ]);
+    );
+    const chunks = [];
+    for await (const chunk of s3Res.Body) chunks.push(chunk);
+    report = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+  }
 
-  const chunks = [];
-  for await (const chunk of s3Res.Body) chunks.push(chunk);
-  const report = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+  const lessonContent = await LessonContent.findOne({
+    where: { course_lesson_id: attempt.course_lesson_id },
+  });
 
   // Attach presigned artwork image URL so frontend can display the artwork alongside the report
   report.artwork_image_url = lessonContent?.image_s3_key
@@ -802,17 +805,22 @@ const getCourseReport = async (courseId, userId) => {
     );
   }
 
-  // 2. Cache hit — return stored JSON from S3
-  if (progress.course_report_s3_key) {
-    const s3Res = await s3.send(
-      new GetObjectCommand({
-        Bucket: process.env.AWS_BUCKET,
-        Key: progress.course_report_s3_key,
-      }),
-    );
-    const chunks = [];
-    for await (const chunk of s3Res.Body) chunks.push(chunk);
-    const report = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+  // 2. Cache hit — read from DB if available, fall back to S3 for older records
+  if (progress.course_report_json || progress.course_report_s3_key) {
+    let report;
+    if (progress.course_report_json) {
+      report = progress.course_report_json;
+    } else {
+      const s3Res = await s3.send(
+        new GetObjectCommand({
+          Bucket: process.env.AWS_BUCKET,
+          Key: progress.course_report_s3_key,
+        }),
+      );
+      const chunks = [];
+      for await (const chunk of s3Res.Body) chunks.push(chunk);
+      report = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+    }
     const pdf_url = progress.course_report_pdf_s3_key
       ? await getPresignedUrl(progress.course_report_pdf_s3_key)
       : null;
@@ -899,10 +907,11 @@ const getCourseReport = async (courseId, userId) => {
 
   const pdfKey = await uploadReportPdfToS3(pdfBuffer);
 
-  // 8. Cache keys on UserCourseProgress
+  // 8. Cache keys + JSON on UserCourseProgress
   await progress.update({
     course_report_s3_key: jsonKey,
     course_report_pdf_s3_key: pdfKey,
+    course_report_json: girResult,
   });
 
   const pdf_url = await getPresignedUrl(pdfKey);

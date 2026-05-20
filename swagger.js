@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: "https://theft-organic-numeric-deaths.trycloudflare.com",
+        url: " https://arrived-mills-crest-numbers.trycloudflare.com",
         description: "Cloudflare Tunnel",
       },
       {
