@@ -8,6 +8,11 @@ const {
 } = require("../models");
 const AppError = require("../utils/app-error");
 const { getPresignedUrl } = require("./s3.service");
+const {
+  ARCHETYPE_SUBTITLES,
+  ARCHETYPE_DESCRIPTIONS,
+  FIXED_INTRO,
+} = require("./archetype.service");
 
 // ─── Courses ─────────────────────────────────────────────────────────────────
 
@@ -967,6 +972,130 @@ const setHomeBaseCourse = async (userId, archetypeName) => {
   }
 };
 
+// ─── Perception Dashboard ─────────────────────────────────────────────────────
+
+const VALID_ARCHETYPES = ["Storyteller", "Framer", "Archivist", "Artist", "Integrator"];
+
+const getPerceptionDashboard = async (userId) => {
+  const attempts = await UserLessonAttempt.findAll({
+    where: { user_id: userId, status: "completed" },
+    attributes: ["report_json"],
+  });
+
+  const counts = { Storyteller: 0, Framer: 0, Archivist: 0, Artist: 0, Integrator: 0 };
+  let total = 0;
+
+  for (const attempt of attempts) {
+    const name = attempt.report_json?.archetype?.name;
+    if (name && counts[name] !== undefined) {
+      counts[name]++;
+      total++;
+    }
+  }
+
+  const MODE_LABELS = [
+    "Your primary mode",
+    "Accessible mode",
+    "Developing",
+    "Growing edge",
+    "Next frontier",
+  ];
+
+  const sorted = VALID_ARCHETYPES.map((name) => ({
+    name,
+    subtitle: ARCHETYPE_SUBTITLES[name],
+    count: counts[name],
+    percentage: total > 0 ? Math.round((counts[name] / total) * 100) : 0,
+  })).sort((a, b) => b.count - a.count);
+
+  const archetypes = sorted.map((item, index) => ({
+    ...item,
+    mode: item.percentage === 0 ? "Emerging" : (MODE_LABELS[index] || "Emerging"),
+  }));
+
+  return { total_lessons_completed: total, archetypes };
+};
+
+const getArchetypePerceptionReport = async (userId, archetype) => {
+  if (!VALID_ARCHETYPES.includes(archetype)) {
+    throw new AppError(
+      `Invalid archetype. Must be one of: ${VALID_ARCHETYPES.join(", ")}`,
+      400,
+      "INVALID_ARCHETYPE",
+    );
+  }
+
+  const attempts = await UserLessonAttempt.findAll({
+    where: { user_id: userId, status: "completed" },
+    attributes: ["id", "report_json"],
+    include: [
+      {
+        model: CourseLesson,
+        attributes: ["title"],
+      },
+    ],
+  });
+
+  // Filter to only attempts where this archetype was primary
+  const matching = attempts.filter(
+    (a) => a.report_json?.archetype?.name === archetype,
+  );
+
+  if (matching.length === 0) {
+    throw new AppError(
+      `No completed lessons found for archetype: ${archetype}`,
+      404,
+      "ARCHETYPE_NOT_FOUND",
+    );
+  }
+
+  // Aggregate what_you_said quotes across all matching lessons
+  const whatYouSaid = matching.map((attempt) => {
+    const json = attempt.report_json;
+    return {
+      lesson_title: attempt.CourseLesson?.title || null,
+      attempt_id: attempt.id,
+      quotes: json?.promptInsights || [],
+    };
+  });
+
+  // Parse ARCHETYPE_DESCRIPTIONS for static sections
+  const descriptionText = ARCHETYPE_DESCRIPTIONS[archetype] || "";
+
+  // Extract "Why this matters:" section
+  const whyMatch = descriptionText.match(/Why this matters:([\s\S]*?)(?:Your growing edge:|Expanding Your Range:|$)/i);
+  const whyThisMatters = whyMatch ? whyMatch[1].trim() : "";
+
+  // Extract "Moving toward" entries for expanding_your_range
+  const movingTowardMatches = [...descriptionText.matchAll(/Moving toward the ([^:]+):([\s\S]*?)(?=Moving toward|$)/g)];
+  const movingToward = movingTowardMatches.map((m) => ({
+    archetype: m[1].trim(),
+    text: `Moving toward the ${m[1].trim()}: ${m[2].trim()}`,
+  }));
+
+  // First paragraph = aesthetic_archetype_portrait (everything before "What you do:")
+  const portraitMatch = descriptionText.match(/^([\s\S]*?)(?:What you do:|$)/i);
+  const primaryArchetypeDesc = portraitMatch ? portraitMatch[1].trim() : descriptionText;
+
+  return {
+    archetype: {
+      name: archetype,
+      subtitle: ARCHETYPE_SUBTITLES[archetype],
+      description: primaryArchetypeDesc,
+      lesson_count: matching.length,
+    },
+    sections: {
+      aesthetic_archetype_portrait: FIXED_INTRO,
+      primary_aesthetic_archetype: primaryArchetypeDesc,
+      why_this_matters: whyThisMatters,
+      what_you_said: whatYouSaid,
+      expanding_your_range: {
+        moving_toward: movingToward,
+      },
+    },
+  };
+};
+
 module.exports = {
   createCourse,
   getAllCourses,
@@ -985,4 +1114,6 @@ module.exports = {
   getCourseReport,
   getCourseReportPdf,
   setHomeBaseCourse,
+  getPerceptionDashboard,
+  getArchetypePerceptionReport,
 };

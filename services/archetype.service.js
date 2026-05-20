@@ -1073,4 +1073,11 @@ const analyzeGrowthInRange = async ({ lessons }) => {
   };
 };
 
-module.exports = { analyzeArchetype, analyzeLessonArchetype, analyzeGrowthInRange };
+module.exports = {
+  analyzeArchetype,
+  analyzeLessonArchetype,
+  analyzeGrowthInRange,
+  ARCHETYPE_SUBTITLES,
+  ARCHETYPE_DESCRIPTIONS,
+  FIXED_INTRO,
+};

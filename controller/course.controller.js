@@ -226,6 +226,23 @@ const updateLessonContent = asyncHandler(async (req, res) => {
   });
 });
 
+const getPerceptionDashboard = asyncHandler(async (req, res) => {
+  const data = await CourseService.getPerceptionDashboard(req.user.id);
+  return sendSuccess(res, {
+    message: "Perception dashboard retrieved successfully",
+    data,
+  });
+});
+
+const getArchetypePerceptionReport = asyncHandler(async (req, res) => {
+  const { archetype } = req.params;
+  const data = await CourseService.getArchetypePerceptionReport(req.user.id, archetype);
+  return sendSuccess(res, {
+    message: "Archetype perception report retrieved successfully",
+    data,
+  });
+});
+
 module.exports = {
   createCourse,
   getAllCourses,
@@ -243,4 +260,6 @@ module.exports = {
   createLessonContent,
   getLessonContent,
   updateLessonContent,
+  getPerceptionDashboard,
+  getArchetypePerceptionReport,
 };

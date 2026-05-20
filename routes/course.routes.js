@@ -33,6 +33,8 @@ const {
   createLessonContent,
   getLessonContent,
   updateLessonContent,
+  getPerceptionDashboard,
+  getArchetypePerceptionReport,
 } = require("../controller/course.controller");
 
 const router = express.Router();
@@ -191,6 +193,152 @@ router.post(
  *         description: Unauthorized
  */
 router.get("/", authenticate, getAllCourses);
+
+// ─── Perception Dashboard ─────────────────────────────────────────────────────
+// NOTE: These static routes must be declared BEFORE /:courseId to avoid collision.
+
+/**
+ * @swagger
+ * /api/v1/courses/perception:
+ *   get:
+ *     summary: Get perception dashboard (aggregated archetype counts)
+ *     description: |
+ *       Aggregates all completed lessons across all courses for the authenticated user.
+ *       Returns archetype counts and percentages for all 5 archetypes, sorted by count descending.
+ *       When `total_lessons_completed === 0` the frontend should show an empty state.
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Perception dashboard data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     total_lessons_completed:
+ *                       type: integer
+ *                       example: 4
+ *                     archetypes:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           name:
+ *                             type: string
+ *                             example: "Framer"
+ *                           subtitle:
+ *                             type: string
+ *                             example: "Structure Seeker"
+ *                           count:
+ *                             type: integer
+ *                             example: 2
+ *                           percentage:
+ *                             type: integer
+ *                             example: 50
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/perception", authenticate, getPerceptionDashboard);
+
+/**
+ * @swagger
+ * /api/v1/courses/perception/{archetype}:
+ *   get:
+ *     summary: Get full perception report for a specific archetype
+ *     description: |
+ *       Returns the full aggregated report for a specific archetype across all lessons where
+ *       that archetype was the primary. Includes static copy, lesson quotes, and expanding range content.
+ *       Valid archetypes: `Storyteller`, `Framer`, `Archivist`, `Artist`, `Integrator`.
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: archetype
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [Storyteller, Framer, Archivist, Artist, Integrator]
+ *         description: Archetype name (case-sensitive)
+ *         example: Framer
+ *     responses:
+ *       200:
+ *         description: Archetype perception report
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     archetype:
+ *                       type: object
+ *                       properties:
+ *                         name:
+ *                           type: string
+ *                           example: "Framer"
+ *                         subtitle:
+ *                           type: string
+ *                           example: "Structure Seeker"
+ *                         description:
+ *                           type: string
+ *                         lesson_count:
+ *                           type: integer
+ *                           example: 2
+ *                     sections:
+ *                       type: object
+ *                       properties:
+ *                         aesthetic_archetype_portrait:
+ *                           type: string
+ *                         primary_aesthetic_archetype:
+ *                           type: string
+ *                         why_this_matters:
+ *                           type: string
+ *                         what_you_said:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               lesson_title:
+ *                                 type: string
+ *                               attempt_id:
+ *                                 type: integer
+ *                               quotes:
+ *                                 type: array
+ *                                 items:
+ *                                   type: object
+ *                         expanding_your_range:
+ *                           type: object
+ *                           properties:
+ *                             moving_toward:
+ *                               type: array
+ *                               items:
+ *                                 type: object
+ *                                 properties:
+ *                                   archetype:
+ *                                     type: string
+ *                                   text:
+ *                                     type: string
+ *       400:
+ *         description: Invalid archetype name
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: No completed lessons found for this archetype
+ */
+router.get("/perception/:archetype", authenticate, getArchetypePerceptionReport);
 
 /**
  * @swagger
