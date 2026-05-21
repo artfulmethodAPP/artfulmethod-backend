@@ -296,6 +296,7 @@ const getUserLessonReports = async (userId) => {
             prompt_insights: a.report_json.promptInsights || [],
             moving_across_your_range: a.report_json.movingAcrossYourRange || null,
             how_might_this_growth_show_up: a.report_json.howMightThisGrowthShowUp || null,
+            perception_framework: a.report_json.perceptionFramework || null,
           }
         : null,
     });
