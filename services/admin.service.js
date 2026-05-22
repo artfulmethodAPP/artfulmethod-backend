@@ -8,6 +8,7 @@ const {
   UserCourseProgress,
   UserLessonAttempt,
   UserPromptResponse,
+  AudioTranscript,
 } = require("../models");
 const AppError = require("../utils/app-error");
 const {
@@ -325,6 +326,14 @@ const getUserLessonReports = async (userId) => {
 const getUserTranscripts = async (userId) => {
   await findUser(userId);
 
+  // Onboarding transcript
+  const onboardingTranscript = await AudioTranscript.findOne({
+    where: { user_id: userId },
+    attributes: ["id", "transcript_text", "created_at"],
+    order: [["created_at", "ASC"]],
+  });
+
+  // Lesson transcripts grouped by attempt
   const attempts = await UserLessonAttempt.findAll({
     where: { user_id: userId },
     attributes: ["id"],
@@ -352,7 +361,7 @@ const getUserTranscripts = async (userId) => {
     ],
   });
 
-  const transcripts = attempts
+  const lesson_transcripts = attempts
     .filter((a) => (a.UserPromptResponses || []).length > 0)
     .map((attempt) => ({
       attempt_id: attempt.id,
@@ -365,7 +374,16 @@ const getUserTranscripts = async (userId) => {
       })),
     }));
 
-  return { transcripts };
+  return {
+    onboarding_transcript: onboardingTranscript
+      ? {
+          id: onboardingTranscript.id,
+          transcript_text: onboardingTranscript.transcript_text,
+          created_at: onboardingTranscript.created_at,
+        }
+      : null,
+    lesson_transcripts,
+  };
 };
 
 module.exports = {
