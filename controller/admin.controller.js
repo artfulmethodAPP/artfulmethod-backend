@@ -40,9 +40,19 @@ const getUserTranscripts = asyncHandler(async (req, res) => {
   });
 });
 
+const getUserAudios = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const result = await AdminService.getUserAudios(userId);
+  return sendSuccess(res, {
+    message: "User audios retrieved successfully",
+    data: result,
+  });
+});
+
 module.exports = {
   getUsers,
   getUserDetail,
   getUserLessonReports,
   getUserTranscripts,
+  getUserAudios,
 };

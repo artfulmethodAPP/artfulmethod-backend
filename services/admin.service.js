@@ -386,9 +386,86 @@ const getUserTranscripts = async (userId) => {
   };
 };
 
+// ─── 5. User Audios ──────────────────────────────────────────────────────────
+
+const getUserAudios = async (userId) => {
+  await findUser(userId);
+
+  const { getPresignedUrl } = require("./s3.service");
+
+  // Onboarding audio
+  const onboardingAudio = await AudioTranscript.findOne({
+    where: { user_id: userId },
+    attributes: ["id", "audio_s3_key", "created_at"],
+    order: [["created_at", "ASC"]],
+  });
+
+  // Lesson audios grouped by attempt
+  const attempts = await UserLessonAttempt.findAll({
+    where: { user_id: userId },
+    attributes: ["id"],
+    include: [
+      {
+        model: CourseLesson,
+        attributes: ["id", "title"],
+      },
+      {
+        model: Course,
+        attributes: ["id", "name"],
+      },
+      {
+        model: UserPromptResponse,
+        where: { audio_s3_key: { [Op.ne]: null } },
+        attributes: ["id", "prompt_number", "audio_s3_key", "submitted_at"],
+        required: false,
+      },
+    ],
+    order: [
+      ["id", "DESC"],
+      [UserPromptResponse, "prompt_number", "ASC"],
+    ],
+  });
+
+  // Generate presigned URL for onboarding audio
+  let onboarding_audio = null;
+  if (onboardingAudio && onboardingAudio.audio_s3_key) {
+    onboarding_audio = {
+      id: onboardingAudio.id,
+      audio_url: await getPresignedUrl(onboardingAudio.audio_s3_key),
+      created_at: onboardingAudio.created_at,
+    };
+  }
+
+  // Generate presigned URLs for lesson audios
+  const lesson_audios = await Promise.all(
+    attempts
+      .filter((a) => (a.UserPromptResponses || []).some((r) => r.audio_s3_key))
+      .map(async (attempt) => {
+        const prompts = await Promise.all(
+          (attempt.UserPromptResponses || [])
+            .filter((r) => r.audio_s3_key)
+            .map(async (r) => ({
+              prompt_number: r.prompt_number,
+              audio_url: await getPresignedUrl(r.audio_s3_key),
+              submitted_at: r.submitted_at,
+            })),
+        );
+        return {
+          attempt_id: attempt.id,
+          lesson: { id: attempt.CourseLesson?.id || null, title: attempt.CourseLesson?.title || null },
+          course: { id: attempt.Course?.id || null, name: attempt.Course?.name || null },
+          prompts,
+        };
+      }),
+  );
+
+  return { onboarding_audio, lesson_audios };
+};
+
 module.exports = {
   getUsers,
   getUserDetail,
   getUserLessonReports,
   getUserTranscripts,
+  getUserAudios,
 };

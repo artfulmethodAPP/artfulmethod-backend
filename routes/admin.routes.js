@@ -8,6 +8,7 @@ const {
   getUserDetail,
   getUserLessonReports,
   getUserTranscripts,
+  getUserAudios,
 } = require("../controller/admin.controller");
 
 const router = express.Router();
@@ -416,5 +417,91 @@ router.get("/users/:userId/reports", authenticate, isAdmin, getUserLessonReports
  *         description: User not found
  */
 router.get("/users/:userId/transcripts", authenticate, isAdmin, getUserTranscripts);
+
+// ─── User Audios ──────────────────────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/v1/admin/users/{userId}/audios:
+ *   get:
+ *     summary: Get all audio recordings for a user (Admin)
+ *     description: Returns onboarding audio and all lesson audio recordings grouped by attempt, with presigned S3 URLs (valid 1 hour).
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Audios retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     onboarding_audio:
+ *                       nullable: true
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: integer
+ *                         audio_url:
+ *                           type: string
+ *                           description: Presigned S3 URL (valid 1 hour)
+ *                         created_at:
+ *                           type: string
+ *                           format: date-time
+ *                     lesson_audios:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           attempt_id:
+ *                             type: integer
+ *                           lesson:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: integer
+ *                               title:
+ *                                 type: string
+ *                           course:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: integer
+ *                               name:
+ *                                 type: string
+ *                           prompts:
+ *                             type: array
+ *                             items:
+ *                               type: object
+ *                               properties:
+ *                                 prompt_number:
+ *                                   type: integer
+ *                                 audio_url:
+ *                                   type: string
+ *                                   description: Presigned S3 URL (valid 1 hour)
+ *                                 submitted_at:
+ *                                   type: string
+ *                                   format: date-time
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin only
+ *       404:
+ *         description: User not found
+ */
+router.get("/users/:userId/audios", authenticate, isAdmin, getUserAudios);
 
 module.exports = router;
