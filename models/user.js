@@ -53,6 +53,11 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: 0,
       },
+      longest_streak: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
       last_activity_date: {
         type: DataTypes.DATEONLY,
         allowNull: true,

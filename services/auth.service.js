@@ -31,7 +31,11 @@ const computeStreak = async (user) => {
     newStreak = 1;
   } else if (last === today) {
     // Already counted today — no change
-    return { streakCount: user.streak_count, lastActivityDate: last };
+    return {
+      streakCount:      user.streak_count,
+      longestStreak:    user.longest_streak,
+      lastActivityDate: last,
+    };
   } else {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
@@ -46,8 +50,9 @@ const computeStreak = async (user) => {
     }
   }
 
-  await user.update({ streak_count: newStreak, last_activity_date: today });
-  return { streakCount: newStreak, lastActivityDate: today };
+  const newLongest = Math.max(newStreak, user.longest_streak || 0);
+  await user.update({ streak_count: newStreak, longest_streak: newLongest, last_activity_date: today });
+  return { streakCount: newStreak, longestStreak: newLongest, lastActivityDate: today };
 };
 
 // =====================
