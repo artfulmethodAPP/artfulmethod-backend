@@ -500,7 +500,7 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
   // 1. Load + validate attempt + fetch user email and lesson title in parallel
   const [attempt, user] = await Promise.all([
     UserLessonAttempt.findOne({ where: { id: attemptId, user_id: userId } }),
-    User.findByPk(userId, { attributes: ["id", "email", "name"] }),
+    User.findByPk(userId, { attributes: ["id", "email"] }),
   ]);
   if (!attempt)
     throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
@@ -602,11 +602,55 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
   // 3. Run lesson archetype analysis — passes all 3 transcripts separately
   const analysisResult = await analyzeLessonArchetype({ transcripts });
 
-  // 4. Fetch lesson details + upload JSON in parallel (need artwork for PDF)
+  // 4. Upload JSON report + generate PDF in parallel
+  //    PDF generation reuses the existing onboarding PDF layout for now
   const jsonKey = `courses/reports/json/${randomUUID()}.json`;
   const jsonStr = JSON.stringify(analysisResult);
 
-  const [, lesson] = await Promise.all([
+  // Build the perception framework as a readable string for the PDF
+  const perceptionFrameworkBody = [
+    analysisResult.perceptionFramework.intro,
+    "",
+    ...analysisResult.perceptionFramework.archetypes.map(
+      (a) => `${a.name} · ${a.subtitle}\n${a.description}`,
+    ),
+  ].join("\n\n");
+
+  // Cover archetype shows primary + secondary (e.g. "The Framer & The Artist")
+  const pdfArchetype = {
+    name: `${analysisResult.archetype.name} & ${analysisResult.secondaryArchetype.name}`,
+    subtitle: `${analysisResult.archetype.subtitle} · ${analysisResult.secondaryArchetype.subtitle}`,
+  };
+
+  const [pdfBuffer] = await Promise.all([
+    generateReportPdf({
+      archetype: pdfArchetype,
+      teaserCards: [],
+      quotesAndMeanings: analysisResult.promptInsights.flatMap((p) => p.quotes),
+      report: {
+        intro: analysisResult.intro,
+        sections: [
+          ...analysisResult.promptInsights.map((p) => ({
+            heading: `What You Said · What It Reveals · Prompt ${p.prompt_number}`,
+            body: p.quotes
+              .map((q) => `"${q.quote}"\n${q.meaning}`)
+              .join("\n\n"),
+          })),
+          {
+            heading: "The Perception Framework",
+            body: perceptionFrameworkBody,
+          },
+          {
+            heading: "Moving Across Your Range",
+            body: analysisResult.movingAcrossYourRange,
+          },
+          {
+            heading: "How might this growth show up?",
+            body: analysisResult.howMightThisGrowthShowUp,
+          },
+        ],
+      },
+    }),
     s3.send(
       new PutObjectCommand({
         Bucket: process.env.AWS_BUCKET,
@@ -615,34 +659,11 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
         ContentType: "application/json",
       }),
     ),
-    CourseLesson.findByPk(lessonId, {
-      attributes: ["title", "sort_order", "artwork_title", "artwork_info"],
-    }),
   ]);
-
-  // 5. Generate PDF (now with artwork data from lesson)
-  const pdfArchetype = {
-    name: `${analysisResult.archetype.name} & ${analysisResult.secondaryArchetype.name}`,
-    subtitle: `${analysisResult.archetype.subtitle} · ${analysisResult.secondaryArchetype.subtitle}`,
-  };
-
-  const pdfBuffer = await generateReportPdf(
-    {
-      archetype: pdfArchetype,
-      teaserCards: [],
-      quotesAndMeanings: analysisResult.promptInsights.flatMap((p) => p.quotes),
-      report: { intro: analysisResult.intro, sections: [] },
-    },
-    analysisResult.archetype?.name,
-    user.name,
-    lesson?.artwork_title || null,
-    lesson?.artwork_info  || null,
-    ARCHETYPE_DESCRIPTIONS,
-  );
 
   const pdfKey = await uploadReportPdfToS3(pdfBuffer);
 
-  // 5b. Mark attempt completed, store S3 keys + JSON in DB
+  // 5. Mark attempt completed, store S3 keys + JSON in DB
   await attempt.update({
     status: "completed",
     completed_at: new Date(),
@@ -651,11 +672,12 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     report_json: analysisResult,
   });
 
-  // 6. Increment lessons_completed on UserCourseProgress + total lesson count in parallel
-  const [, totalLessons] = await Promise.all([
+  // 6. Increment lessons_completed on UserCourseProgress + fetch lesson + total lesson count in parallel
+  const [, lesson, totalLessons] = await Promise.all([
     UserCourseProgress.increment("lessons_completed", {
       where: { user_id: userId, course_id: attempt.course_id },
     }),
+    CourseLesson.findByPk(lessonId, { attributes: ["title", "sort_order"] }),
     CourseLesson.count({ where: { course_id: attempt.course_id, is_active: true } }),
   ]);
 
@@ -769,13 +791,13 @@ const getCourseReport = async (courseId, userId) => {
   const { generateReportPdf, uploadReportPdfToS3 } = require("./pdf.service");
   const { UserPromptResponse } = require("../models");
 
-  // 1. Load course + progress + user in parallel
+  // 1. Load course + progress + user email in parallel
   const [course, progress, user] = await Promise.all([
     Course.findByPk(courseId),
     UserCourseProgress.findOne({
       where: { user_id: userId, course_id: courseId },
     }),
-    User.findByPk(userId, { attributes: ["id", "email", "name"] }),
+    User.findByPk(userId, { attributes: ["id", "email"] }),
   ]);
 
   if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
@@ -850,42 +872,35 @@ const getCourseReport = async (courseId, userId) => {
   const jsonStr = JSON.stringify(girResult);
 
   const [pdfBuffer] = await Promise.all([
-    generateReportPdf(
-      {
-        archetype: {
-          name: `Growth in Range — ${girResult.home_base}`,
-          subtitle: `Home base: ${girResult.home_base} · Range: ${girResult.range_modes.join(", ") || "none"}`,
-        },
-        teaserCards: [],
-        quotesAndMeanings: girResult.report.quotes_and_meanings.map((q) => ({
-          quote: q.quote,
-          meaning: q.vts_commentary,
-        })),
-        report: {
-          intro: girResult.report.fixed_intro,
-          sections: [
-            { heading: "How You See", body: girResult.report.how_you_see },
-            ...girResult.report.your_range.map((r) => ({
-              heading: `Your Range — ${r.mode}`,
-              body: r.paragraph,
-            })),
-            {
-              heading: "Absent Modes",
-              body: girResult.report.absent_modes_sentence,
-            },
-            {
-              heading: "How might this show up?",
-              body: girResult.report.how_might_this_show_up,
-            },
-          ],
-        },
+    generateReportPdf({
+      archetype: {
+        name: `Growth in Range — ${girResult.home_base}`,
+        subtitle: `Home base: ${girResult.home_base} · Range: ${girResult.range_modes.join(", ") || "none"}`,
       },
-      girResult.home_base,
-      user.name,
-      null,
-      null,
-      ARCHETYPE_DESCRIPTIONS,
-    ),
+      teaserCards: [],
+      quotesAndMeanings: girResult.report.quotes_and_meanings.map((q) => ({
+        quote: q.quote,
+        meaning: q.vts_commentary,
+      })),
+      report: {
+        intro: girResult.report.fixed_intro,
+        sections: [
+          { heading: "How You See", body: girResult.report.how_you_see },
+          ...girResult.report.your_range.map((r) => ({
+            heading: `Your Range — ${r.mode}`,
+            body: r.paragraph,
+          })),
+          {
+            heading: "Absent Modes",
+            body: girResult.report.absent_modes_sentence,
+          },
+          {
+            heading: "How might this show up?",
+            body: girResult.report.how_might_this_show_up,
+          },
+        ],
+      },
+    }),
     s3.send(
       new PutObjectCommand({
         Bucket: process.env.AWS_BUCKET,
