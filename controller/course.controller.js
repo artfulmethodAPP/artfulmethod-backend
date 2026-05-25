@@ -1,6 +1,7 @@
 const CourseService = require("../services/course.service");
 const asyncHandler = require("../utils/async-handler");
 const { sendSuccess } = require("../utils/api-response");
+const { computeStreak } = require("../services/auth.service");
 
 // ─── Courses ─────────────────────────────────────────────────────────────────
 
@@ -133,11 +134,14 @@ const completeLesson = asyncHandler(async (req, res) => {
     return { promptNumber: n, file, text };
   });
 
-  const result = await CourseService.completeLesson(attemptId, userId, { prompts });
+  const [result, streak] = await Promise.all([
+    CourseService.completeLesson(attemptId, userId, { prompts }),
+    computeStreak(req.user),
+  ]);
 
   return sendSuccess(res, {
     message: "Lesson completed successfully",
-    data: result,
+    data: { ...result, streak_count: streak.streakCount, longest_streak: streak.longestStreak, last_activity_date: streak.lastActivityDate },
   });
 });
 
@@ -243,6 +247,14 @@ const getArchetypePerceptionReport = asyncHandler(async (req, res) => {
   });
 });
 
+const getHomeDashboard = asyncHandler(async (req, res) => {
+  const data = await CourseService.getHomeDashboard(req.user.id);
+  return sendSuccess(res, {
+    message: "Home dashboard retrieved successfully",
+    data,
+  });
+});
+
 module.exports = {
   createCourse,
   getAllCourses,
@@ -262,4 +274,5 @@ module.exports = {
   updateLessonContent,
   getPerceptionDashboard,
   getArchetypePerceptionReport,
+  getHomeDashboard,
 };

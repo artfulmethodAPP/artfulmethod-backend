@@ -35,6 +35,7 @@ const {
   updateLessonContent,
   getPerceptionDashboard,
   getArchetypePerceptionReport,
+  getHomeDashboard,
 } = require("../controller/course.controller");
 
 const router = express.Router();
@@ -246,6 +247,51 @@ router.get("/", authenticate, getAllCourses);
  *       401:
  *         description: Unauthorized
  */
+/**
+ * @swagger
+ * /api/v1/courses/home:
+ *   get:
+ *     summary: Get home dashboard data
+ *     description: Returns the user's name, current streak, longest streak, last activity date, and total sessions completed.
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Home dashboard retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     name:
+ *                       type: string
+ *                       example: "John Doe"
+ *                     current_streak:
+ *                       type: integer
+ *                       example: 5
+ *                     longest_streak:
+ *                       type: integer
+ *                       example: 12
+ *                     last_activity_date:
+ *                       type: string
+ *                       format: date
+ *                       nullable: true
+ *                       example: "2026-05-22"
+ *                     sessions_completed:
+ *                       type: integer
+ *                       example: 8
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/home", authenticate, getHomeDashboard);
+
 router.get("/perception", authenticate, getPerceptionDashboard);
 
 /**
