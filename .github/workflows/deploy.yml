@@ -185,6 +185,11 @@ jobs:
               export $(grep -v '^#' .env | xargs)
               npx sequelize-cli db:migrate
               node scripts/backfill-report-json.js
+
+              # One-time seed: update Integrator lesson titles (dev only)
+              if [ "${{ needs.setup-env.outputs.env-name }}" = "dev" ]; then
+                npx sequelize-cli db:seed --seed 20260602000000-update-integrator-lessons.js
+              fi
             fi
 
   clean-up:
