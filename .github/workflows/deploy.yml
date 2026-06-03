@@ -188,7 +188,7 @@ jobs:
 
               # One-time seed: update Integrator lesson prompts (dev only)
               if [ "${{ needs.setup-env.outputs.env-name }}" = "dev" ]; then
-                npx sequelize-cli db:seed --seed 20260602000003-seed-storyteller-lesson-contents.js
+                npx sequelize-cli db:seed --seed 20260602000004-seed-framer-lesson-contents.js
               fi
             fi
 
