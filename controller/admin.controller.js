@@ -49,10 +49,52 @@ const getUserAudios = asyncHandler(async (req, res) => {
   });
 });
 
+// ─── Media uploads (return S3 key) ────────────────────────────────────────────
+
+const uploadMediaImage = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    const AppError = require("../utils/app-error");
+    throw new AppError("No image file provided", 400, "VALIDATION_ERROR");
+  }
+  return sendSuccess(res, {
+    message: "Image uploaded successfully",
+    data: { s3_key: req.file.key },
+  });
+});
+
+const uploadMediaAudio = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    const AppError = require("../utils/app-error");
+    throw new AppError("No audio file provided", 400, "VALIDATION_ERROR");
+  }
+  return sendSuccess(res, {
+    message: "Audio uploaded successfully",
+    data: { s3_key: req.file.key },
+  });
+});
+
+// Returns a presigned URL (valid 1 hour) for any S3 key.
+const getMediaPresignedUrl = asyncHandler(async (req, res) => {
+  const AppError = require("../utils/app-error");
+  const { getPresignedUrl } = require("../services/s3.service");
+  const key = req.body?.s3_key;
+  if (!key || !key.trim()) {
+    throw new AppError("s3_key is required", 400, "VALIDATION_ERROR");
+  }
+  const url = await getPresignedUrl(key.trim());
+  return sendSuccess(res, {
+    message: "Presigned URL generated successfully",
+    data: { url },
+  });
+});
+
 module.exports = {
   getUsers,
   getUserDetail,
   getUserLessonReports,
   getUserTranscripts,
   getUserAudios,
+  uploadMediaImage,
+  uploadMediaAudio,
+  getMediaPresignedUrl,
 };

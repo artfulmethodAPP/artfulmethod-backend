@@ -10,6 +10,13 @@ const {
   getUserTranscripts,
   getUserAudios,
 } = require("../controller/admin.controller");
+const {
+  uploadMediaImage,
+  uploadMediaAudio,
+  getMediaPresignedUrl,
+} = require("../controller/admin.controller");
+const mediaImageUploadS3 = require("../middlewares/media-image-s3.middleware");
+const mediaAudioUploadS3 = require("../middlewares/media-audio-s3.middleware");
 
 const router = express.Router();
 
@@ -503,5 +510,171 @@ router.get("/users/:userId/transcripts", authenticate, isAdmin, getUserTranscrip
  *         description: User not found
  */
 router.get("/users/:userId/audios", authenticate, isAdmin, getUserAudios);
+
+// ─── Media Uploads ────────────────────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/v1/admin/upload/media-image:
+ *   post:
+ *     summary: Upload an image to S3 (Admin)
+ *     description: Uploads a single image to S3 and returns its S3 key.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [image]
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Image uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Image uploaded successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     s3_key:
+ *                       type: string
+ *                       example: "meditations/images/uuid.jpg"
+ *       400:
+ *         description: No image file provided
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin only
+ */
+router.post(
+  "/upload/media-image",
+  authenticate,
+  isAdmin,
+  mediaImageUploadS3.single("image"),
+  uploadMediaImage,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/upload/media-audio:
+ *   post:
+ *     summary: Upload an audio file to S3 (Admin)
+ *     description: Uploads a single audio file to S3 and returns its S3 key.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [audio]
+ *             properties:
+ *               audio:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Audio uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Audio uploaded successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     s3_key:
+ *                       type: string
+ *                       example: "meditations/audio/uuid.mp3"
+ *       400:
+ *         description: No audio file provided
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin only
+ */
+router.post(
+  "/upload/media-audio",
+  authenticate,
+  isAdmin,
+  mediaAudioUploadS3.single("audio"),
+  uploadMediaAudio,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/upload/media-presigned-url:
+ *   post:
+ *     summary: Get a presigned URL for an S3 key (Admin)
+ *     description: Returns a presigned URL valid for 1 hour for any S3 key (image or audio).
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [s3_key]
+ *             properties:
+ *               s3_key:
+ *                 type: string
+ *                 example: "meditations/audio/uuid.mp3"
+ *     responses:
+ *       200:
+ *         description: Presigned URL generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Presigned URL generated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     url:
+ *                       type: string
+ *                       example: "https://..."
+ *       400:
+ *         description: s3_key is required
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin only
+ */
+router.post(
+  "/upload/media-presigned-url",
+  authenticate,
+  isAdmin,
+  getMediaPresignedUrl,
+);
 
 module.exports = router;
