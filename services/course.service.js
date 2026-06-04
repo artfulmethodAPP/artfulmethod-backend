@@ -111,6 +111,42 @@ const getCourseById = async (courseId, userId) => {
 
   if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
 
+  // ── Course-level lock gate (mirrors getAllCourses ordering) ────────────────
+  // A course is unlocked only if it is the home-base course (shown first) or the
+  // course immediately preceding it in that ordering has been completed.
+  const numericCourseId = Number(courseId);
+  const [user, allCourses, allProgress] = await Promise.all([
+    User.findByPk(userId, { attributes: ["id", "home_base_course_id"] }),
+    Course.findAll({ where: { is_active: true }, order: [["sort_order", "ASC"]] }),
+    UserCourseProgress.findAll({ where: { user_id: userId } }),
+  ]);
+
+  const homeBaseCourseId = user ? user.home_base_course_id : null;
+  const progressMap = new Map(allProgress.map((p) => [p.course_id, p]));
+
+  // Reorder: home base course first, then the rest in sort_order (same as getAllCourses)
+  const ordered = [...allCourses];
+  if (homeBaseCourseId) {
+    const homeIndex = ordered.findIndex((c) => c.id === homeBaseCourseId);
+    if (homeIndex > 0) {
+      const [homeCourse] = ordered.splice(homeIndex, 1);
+      ordered.unshift(homeCourse);
+    }
+  }
+
+  const orderIndex = ordered.findIndex((c) => c.id === numericCourseId);
+  if (orderIndex > 0) {
+    const prevCourse = ordered[orderIndex - 1];
+    const prevProgress = progressMap.get(prevCourse.id);
+    if (!prevProgress || prevProgress.status !== "completed") {
+      throw new AppError(
+        "Complete the previous course before accessing this one",
+        403,
+        "COURSE_LOCKED",
+      );
+    }
+  }
+
   const { image_s3_key, CourseLessons: lessons, ...plain } = course.toJSON();
   plain.image_url = image_s3_key ? await getPresignedUrl(image_s3_key) : null;
 
