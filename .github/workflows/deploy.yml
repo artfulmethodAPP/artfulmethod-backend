@@ -186,9 +186,9 @@ jobs:
               npx sequelize-cli db:migrate
               node scripts/backfill-report-json.js
 
-              # One-time seed: update Integrator lesson prompts (dev only)
+              # One-time seed: artful meditations (dev only)
               if [ "${{ needs.setup-env.outputs.env-name }}" = "dev" ]; then
-                npx sequelize-cli db:seed --seed 20260602000000-create-artful-meditations.js
+                npx sequelize-cli db:seed --seed 20260602000010-seed-artful-meditations.js
               fi
             fi
 
