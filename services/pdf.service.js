@@ -299,27 +299,6 @@ const drawQuotes = (doc, quotesAndMeanings) => {
 };
 
 // ─── Teaser cards (Type 1) ────────────────────────────────────────────────────
-const drawTeasers = (doc, teaserCards) => {
-  drawSectionHeading(doc, "Your Perceptual Signature");
-
-  teaserCards.forEach((line, idx) => {
-    ensureSpace(doc, 52);
-    const y = doc.y;
-    doc
-      .font(F.bold)
-      .fontSize(11)
-      .fillColor(COLOURS.accent)
-      .text(String(idx + 1).padStart(2, "0"), MARGIN, y, { width: 26 });
-    doc
-      .font(F.regular)
-      .fontSize(10.5)
-      .fillColor(COLOURS.text)
-      .text(line, MARGIN + 30, y, { width: CONTENT_WIDTH - 30, lineGap: 4.5 });
-    doc.moveDown(0.85);
-  });
-  doc.moveDown(0.3);
-};
-
 // Detect a GiR "Session N: Dominant Archetype: X" heading and render it as an
 // eyebrow ("SESSION N") + bold archetype name, instead of one flat bold line.
 const SESSION_HEADING_RE = /^Session\s+(\d+):\s*Dominant Archetype:\s*(.+)$/i;
@@ -348,8 +327,10 @@ const drawRangeItem = (doc, mode, body) => {
 };
 
 // ─── Report sections (intro + typed headings/bodies) ─────────────────────────
-const drawReportSections = (doc, report) => {
-  if (report.intro && report.intro.trim()) {
+// When `skipIntro` is true the caller has already rendered report.intro (so the
+// fixed intro can appear above the quotes block, per the Report Type 1 spec).
+const drawReportSections = (doc, report, { skipIntro = false } = {}) => {
+  if (!skipIntro && report.intro && report.intro.trim()) {
     drawBody(doc, report.intro, 1.2);
   }
 
@@ -472,14 +453,17 @@ const generateReportPdf = (result) => {
     // Body: continue on a fresh page so the cover stays clean.
     doc.addPage();
 
-    if (teaserCards && teaserCards.length) {
-      drawTeasers(doc, teaserCards);
+    // Report Type 1 structure: the fixed intro paragraph leads the body, before
+    // "What You Said and What It Reveals". The onboarding teaser cards
+    // ("Your Perceptual Signature") are intentionally not rendered in the PDF.
+    if (report && report.intro && report.intro.trim()) {
+      drawBody(doc, report.intro, 1.2);
     }
     if (quotesAndMeanings && quotesAndMeanings.length) {
       drawQuotes(doc, quotesAndMeanings);
     }
     if (report && ((report.sections && report.sections.length) || report.intro)) {
-      drawReportSections(doc, report);
+      drawReportSections(doc, report, { skipIntro: true });
     }
 
     drawClosing(doc);

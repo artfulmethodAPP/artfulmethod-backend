@@ -234,15 +234,7 @@ Moving toward the Artist: The Artist stays inside one moment rather than synthes
 Moving toward the Storyteller: The Storyteller enters before they understand. «Forget everything you have built. What is the first thing you see?»`,
 };
 
-const FIXED_INTRO = `This portrait emerges from your own words.
-
-During our session, we recorded and transcribed how you thought out loud in front of a work of art: the observations you made, the questions you asked, the meanings you built. From that, we identified the recurring cognitive patterns that shape how you see.
-
-This isn't a personality type. It's a map of your perceptual intelligence: how you notice, interpret, and make sense of what's in front of you.
-
-We didn't assign this. We found it in your own words.
-
-You're welcome to share this portrait, along with the artwork you explored and your own reflections on which Aesthetic Archetypes surfaced most strongly for you.`;
+const FIXED_INTRO = `This portrait emerges from your own words. During our session, we recorded and transcribed how you thought out loud in front of a work of art: the observations you made, the questions you asked, the meanings you built. From that, we identified the recurring cognitive patterns that shape how you see. This isn't a personality type. It's a map of your perceptual intelligence: how you notice, interpret, and make sense of what's in front of you. We didn't assign this. We found it in your own words. You're welcome to share this portrait, along with the artwork you explored and your own reflections on which Aesthetic Archetypes surfaced most strongly for you.`;
 
 // ─── Claude call helper ──────────────────────────────────────────────────────
 
