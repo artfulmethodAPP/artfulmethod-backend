@@ -7,8 +7,9 @@ const {
   uploadReportPdfToS3,
 } = require("../services/pdf.service");
 const { computeStreak } = require("../services/auth.service");
-const { AiReport } = require("../models");
+const { AiReport, User } = require("../models");
 const { setHomeBaseCourse } = require("../services/course.service");
+const { sendArchetypeReportEmail } = require("../services/email.service");
 
 /**
  * POST /api/v1/archetype/analyze
@@ -26,8 +27,23 @@ const analyzeTranscript = asyncHandler(async (req, res) => {
     transcript: transcript.trim(),
   });
 
+  // Input Safeguard (Artful Method Section 5): if the transcript is missing,
+  // too short, or out of scope, no report is generated. Return HTTP 200 with the
+  // exact notice text so the client can surface it verbatim and offer a retry.
+  if (result.rejected) {
+    return sendSuccess(res, {
+      statusCode: 200,
+      message: result.notice.notice_title,
+      data: {
+        rejected: true,
+        notice_title: result.notice.notice_title,
+        notice_message: result.notice.notice_message,
+      },
+    });
+  }
+
   const [pdfBuffer, streak] = await Promise.all([
-    generateReportPdf(result),
+    generateReportPdf({ ...result, participant: { name: req.user.name } }),
     computeStreak(req.user),
   ]);
 
@@ -48,6 +64,22 @@ const analyzeTranscript = asyncHandler(async (req, res) => {
 
   // Assign home base course on first archetype result (fire-and-forget, non-blocking)
   setHomeBaseCourse(userId, result.archetype.name).catch(() => {});
+
+  // Email the report PDF (fire-and-forget, non-blocking, respects email_reports_enabled)
+  if (pdfBuffer) {
+    User.findByPk(userId, { attributes: ["email"] })
+      .then((u) => {
+        if (u?.email) {
+          return sendArchetypeReportEmail({
+            userId,
+            email: u.email,
+            archetypeName: result.archetype.name,
+            pdfBuffer,
+          });
+        }
+      })
+      .catch(() => {});
+  }
 
   return sendSuccess(res, {
     statusCode: 200,

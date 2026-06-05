@@ -99,7 +99,7 @@ const sendLessonReportEmail = async ({ userId, email, lessonTitle, lessonNumber,
   const user = await User.findByPk(userId, { attributes: ["email_reports_enabled"] });
   if (!user?.email_reports_enabled) return;
 
-  const subject = `Your Lesson ${lessonNumber} Report — ${lessonTitle}`;
+  const subject = `Your Session ${lessonNumber} Report: ${lessonTitle}`;
   try {
     await transporter.sendMail({
       from: FROM_ADDRESS,
@@ -107,20 +107,20 @@ const sendLessonReportEmail = async ({ userId, email, lessonTitle, lessonNumber,
       subject,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; color: #111; background: #fafafa;">
-          <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #1A1A1A;">Your Lesson ${lessonNumber} Report</h2>
+          <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #1A1A1A;">Your Session ${lessonNumber} Report</h2>
           <p style="font-size: 14px; color: #444; margin-bottom: 6px;">
             You've completed <strong>${lessonTitle}</strong>.
           </p>
           <p style="font-size: 14px; color: #444; margin-bottom: 24px;">
-            Your personal Aesthetic Archetype report for this lesson is attached as a PDF.
-            It's yours to keep — you can return to it any time.
+            Your personal Aesthetic Archetype report for this session is attached as a PDF.
+            It's yours to keep, you can return to it any time.
           </p>
           <p style="font-size: 12px; color: #888; margin-top: 32px;">© ${new Date().getFullYear()} Artful Method</p>
         </div>
       `,
       attachments: [
         {
-          filename: `ArtfulMethod-Lesson-${lessonNumber}-Report.pdf`,
+          filename: `ArtfulMethod-Session-${lessonNumber}-Report.pdf`,
           content: pdfBuffer,
           contentType: "application/pdf",
         },
@@ -150,13 +150,70 @@ const sendLessonReportEmail = async ({ userId, email, lessonTitle, lessonNumber,
   }
 };
 
+// ─── Archetype Report Email (onboarding single-encounter portrait) ────────────
+
+const sendArchetypeReportEmail = async ({ userId, email, archetypeName, pdfBuffer }) => {
+  const user = await User.findByPk(userId, { attributes: ["email_reports_enabled"] });
+  if (!user?.email_reports_enabled) return;
+
+  const subject = `Your Aesthetic Archetype Report: The ${archetypeName}`;
+  try {
+    await transporter.sendMail({
+      from: FROM_ADDRESS,
+      to: email,
+      subject,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; color: #111; background: #fafafa;">
+          <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #1A1A1A;">Your Aesthetic Archetype Report</h2>
+          <p style="font-size: 14px; color: #444; margin-bottom: 6px;">
+            Your dominant archetype is <strong>The ${archetypeName}</strong>.
+          </p>
+          <p style="font-size: 14px; color: #444; margin-bottom: 24px;">
+            Your personal Aesthetic Archetype report is attached as a PDF.
+            It's yours to keep, you can return to it any time.
+          </p>
+          <p style="font-size: 12px; color: #888; margin-top: 32px;">© ${new Date().getFullYear()} Artful Method</p>
+        </div>
+      `,
+      attachments: [
+        {
+          filename: `ArtfulMethod-Archetype-Report-${archetypeName}.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+
+    await EmailLog.create({
+      user_id: userId,
+      email,
+      email_type: "report",
+      subject,
+      status: "sent",
+      sent_at: new Date(),
+    });
+  } catch (error) {
+    console.error("[sendArchetypeReportEmail] error:", error.message);
+    await EmailLog.create({
+      user_id: userId,
+      email,
+      email_type: "report",
+      subject,
+      status: "failed",
+      error_message: error.message,
+      sent_at: new Date(),
+    }).catch(() => {});
+    // Non-fatal: analysis response must not fail due to email
+  }
+};
+
 // ─── Course Report Email (Growth in Range) ────────────────────────────────────
 
 const sendCourseReportEmail = async ({ userId, email, courseName, pdfBuffer }) => {
   const user = await User.findByPk(userId, { attributes: ["email_reports_enabled"] });
   if (!user?.email_reports_enabled) return;
 
-  const subject = `Your Growth in Range Report — ${courseName}`;
+  const subject = `Your Growth in Range Report: ${courseName}`;
   try {
     await transporter.sendMail({
       from: FROM_ADDRESS,
@@ -166,11 +223,11 @@ const sendCourseReportEmail = async ({ userId, email, courseName, pdfBuffer }) =
         <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; color: #111; background: #fafafa;">
           <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #1A1A1A;">Your Growth in Range Report</h2>
           <p style="font-size: 14px; color: #444; margin-bottom: 6px;">
-            Congratulations — you've completed <strong>${courseName}</strong>.
+            Congratulations, you've completed <strong>${courseName}</strong>.
           </p>
           <p style="font-size: 14px; color: #444; margin-bottom: 24px;">
             Your full Growth in Range report is attached as a PDF. It maps how you moved across
-            all five aesthetic archetypes throughout the course — yours to keep and revisit.
+            all five aesthetic archetypes throughout the course, yours to keep and revisit.
           </p>
           <p style="font-size: 12px; color: #888; margin-top: 32px;">© ${new Date().getFullYear()} Artful Method</p>
         </div>
@@ -207,4 +264,4 @@ const sendCourseReportEmail = async ({ userId, email, courseName, pdfBuffer }) =
   }
 };
 
-module.exports = { sendOTPEmail, sendResetPasswordLinkEmail, sendLessonReportEmail, sendCourseReportEmail };
+module.exports = { sendOTPEmail, sendResetPasswordLinkEmail, sendArchetypeReportEmail, sendLessonReportEmail, sendCourseReportEmail };

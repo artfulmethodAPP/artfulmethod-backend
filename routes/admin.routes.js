@@ -3,14 +3,15 @@
 const express = require("express");
 const authenticate = require("../middlewares/authenticate.middleware");
 const isAdmin = require("../middlewares/isAdmin.middleware");
+const courseImageUploadS3 = require("../middlewares/course-image-s3.middleware");
 const {
   getUsers,
   getUserDetail,
   getUserLessonReports,
   getUserTranscripts,
   getUserAudios,
-} = require("../controller/admin.controller");
-const {
+  uploadImage,
+  getPresignedImageUrl,
   uploadMediaImage,
   uploadMediaAudio,
   getMediaPresignedUrl,
@@ -511,7 +512,110 @@ router.get("/users/:userId/transcripts", authenticate, isAdmin, getUserTranscrip
  */
 router.get("/users/:userId/audios", authenticate, isAdmin, getUserAudios);
 
-// ─── Media Uploads ────────────────────────────────────────────────────────────
+// ─── Image Upload (course/report artwork) ─────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/v1/admin/upload/image:
+ *   post:
+ *     summary: Upload an image to S3 (Admin)
+ *     description: Uploads a single image file to S3 and returns the S3 key.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [image]
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Image uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Image uploaded successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     s3_key:
+ *                       type: string
+ *                       example: "courses/artwork/uuid.jpg"
+ *       400:
+ *         description: No image file provided
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin only
+ */
+router.post(
+  "/upload/image",
+  authenticate,
+  isAdmin,
+  courseImageUploadS3.single("image"),
+  uploadImage,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/upload/presigned-url:
+ *   post:
+ *     summary: Get a presigned URL for an S3 key (Admin)
+ *     description: Returns a presigned URL valid for 1 hour for any S3 key.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [s3_key]
+ *             properties:
+ *               s3_key:
+ *                 type: string
+ *                 example: "courses/artwork/uuid.jpg"
+ *     responses:
+ *       200:
+ *         description: Presigned URL generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     url:
+ *                       type: string
+ *                       example: "https://..."
+ *       400:
+ *         description: s3_key is required
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin only
+ */
+router.post("/upload/presigned-url", authenticate, isAdmin, getPresignedImageUrl);
+
+// ─── Media Uploads (meditations) ──────────────────────────────────────────────
 
 /**
  * @swagger

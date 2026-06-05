@@ -62,7 +62,7 @@ const createLesson = asyncHandler(async (req, res) => {
 
   return sendSuccess(res, {
     statusCode: 201,
-    message: "Lesson created successfully",
+    message: "Session created successfully",
     data: { lesson },
   });
 });
@@ -72,7 +72,7 @@ const getLessons = asyncHandler(async (req, res) => {
   const lessons = await CourseService.getLessonsByCourse(courseId);
 
   return sendSuccess(res, {
-    message: "Lessons retrieved successfully",
+    message: "Sessions retrieved successfully",
     data: { lessons },
   });
 });
@@ -82,7 +82,7 @@ const updateLesson = asyncHandler(async (req, res) => {
   const lesson = await CourseService.updateLesson(lessonId, req.body);
 
   return sendSuccess(res, {
-    message: "Lesson updated successfully",
+    message: "Session updated successfully",
     data: { lesson },
   });
 });
@@ -97,7 +97,7 @@ const startLesson = asyncHandler(async (req, res) => {
 
   return sendSuccess(res, {
     statusCode: 201,
-    message: "Lesson started successfully",
+    message: "Session started successfully",
     data: { attempt },
   });
 });
@@ -140,7 +140,7 @@ const completeLesson = asyncHandler(async (req, res) => {
   ]);
 
   return sendSuccess(res, {
-    message: "Lesson completed successfully",
+    message: "Session completed successfully",
     data: { ...result, streak_count: streak.streakCount, longest_streak: streak.longestStreak, last_activity_date: streak.lastActivityDate },
   });
 });
@@ -150,7 +150,7 @@ const getLessonReport = asyncHandler(async (req, res) => {
   const report = await CourseService.getLessonReport(attemptId, req.user.id);
 
   return sendSuccess(res, {
-    message: "Lesson report retrieved successfully",
+    message: "Session report retrieved successfully",
     data: { report },
   });
 });
@@ -160,7 +160,7 @@ const getLessonReportPdf = asyncHandler(async (req, res) => {
   const data = await CourseService.getLessonReportPdf(attemptId, req.user.id);
 
   return sendSuccess(res, {
-    message: "Lesson report PDF URL generated",
+    message: "Session report PDF URL generated",
     data,
   });
 });
@@ -200,7 +200,7 @@ const createLessonContent = asyncHandler(async (req, res) => {
 
   return sendSuccess(res, {
     statusCode: 201,
-    message: "Lesson content created successfully",
+    message: "Session content created successfully",
     data: { content },
   });
 });
@@ -210,7 +210,7 @@ const getLessonContent = asyncHandler(async (req, res) => {
   const content = await CourseService.getLessonContent(lessonId, req.user.id);
 
   return sendSuccess(res, {
-    message: "Lesson content retrieved successfully",
+    message: "Session content retrieved successfully",
     data: { content },
   });
 });
@@ -225,7 +225,7 @@ const updateLessonContent = asyncHandler(async (req, res) => {
   });
 
   return sendSuccess(res, {
-    message: "Lesson content updated successfully",
+    message: "Session content updated successfully",
     data: { content },
   });
 });

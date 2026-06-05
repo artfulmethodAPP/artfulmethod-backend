@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: " https://arrived-mills-crest-numbers.trycloudflare.com",
+        url: "https://thread-pill-runs-editorials.trycloudflare.com",
         description: "Cloudflare Tunnel",
       },
       {

@@ -6,6 +6,7 @@ const archetypeRoutes = require("./archetype.routes");
 const courseRoutes = require("./course.routes");
 const adminRoutes = require("./admin.routes");
 const meditationRoutes = require("./meditation.routes");
+const reportPreviewRoutes = require("./report-preview.routes");
 const router = express.Router();
 
 router.use("/auth", authRoutes);
@@ -15,5 +16,7 @@ router.use("/archetype", archetypeRoutes);
 router.use("/courses", courseRoutes);
 router.use("/admin", adminRoutes);
 router.use("/meditations", meditationRoutes);
+// TEST ONLY — remove before production
+router.use("/report-preview", reportPreviewRoutes);
 
 module.exports = router;

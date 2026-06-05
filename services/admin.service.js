@@ -292,6 +292,10 @@ const getUserLessonReports = async (userId) => {
       report: a.report_json
         ? {
             archetype: a.report_json.archetype || null,
+            // Session Read (current lesson report shape)
+            session_insight: a.report_json.sessionInsight || null,
+            signoff: a.report_json.signoff || null,
+            // Legacy fields (older lesson reports, kept for backward compatibility)
             secondary_archetype: a.report_json.secondaryArchetype || null,
             what_shapes_your_thinking: a.report_json.archetypeNarrative || null,
             prompt_insights: a.report_json.promptInsights || [],

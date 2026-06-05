@@ -12,6 +12,91 @@ const client = () => {
   return new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
 };
 
+// ─── Global Language Rules (Artful Method Section 3) ─────────────────────────
+//
+// Prepended to EVERY participant-facing generation prompt. These rules apply
+// universally across all report types. Internal scoring/classification prompts
+// (which return a single archetype word) do not need them.
+
+const GLOBAL_LANGUAGE_RULES = `ARTFUL METHOD GLOBAL LANGUAGE RULES, these apply to every word you generate, without exception:
+
+1. NEVER use em dashes (the "—" character) and NEVER use a double hyphen ("--") as a substitute. Replace with commas, colons, periods, or restructure the sentence. This applies everywhere.
+2. CONDITIONAL OVER ABSOLUTE LANGUAGE. Use "you may", "it might", "could", "appears to", "seems to", "perhaps". Avoid absolute declarations like "you are", "your language indicates", "you show", "this proves", "this definitively means".
+3. FOCUS ON COGNITIVE PROCESS, not identity. Map noticing, interpreting, reasoning, associating, synthesizing, ambiguity tolerance, and meaning-making. Do not psychoanalyze, diagnose, infer trauma, assess personality, or define identity.
+4. PRIORITIZE METACOGNITIVE REFLECTION. Prefer "Your language naturally returned to...", "You appeared to build meaning through...", "Your attention moved toward...". Avoid identity-heavy framing or declarative sorting.
+5. NO THERAPEUTIC OR COACHING LANGUAGE. Never use: healing, transformation, breakthrough, authentic self, growth mindset, empowerment, self-discovery.
+6. NO EVALUATIVE PRAISE. Never use: insightful, brilliant, perceptive, sophisticated, nuanced, impressive, advanced, powerful, rare, important, clever, deep, meaningful, great, well said.
+7. PSYCHOLOGICAL SAFETY. Stay open, non-definitive, non-hierarchical, non-pathologizing. Never imply one archetype is better, that a wider range equals greater worth, or that absent modes indicate deficiency. Range reflects perceptual accessibility, not human value.
+8. KEEP THE ARTWORK SECONDARY TO THE COGNITIVE MOVE. Focus on how the participant made meaning, not whether their interpretation of the artwork is correct. Prefer "You're constructing a narrative from the gesture...". Avoid "This artwork is clearly about...".
+9. PRESERVE OPENNESS AND REVISABILITY. Prefer "What appears to emerge...", "This may reflect...", "The transcript suggests...". Avoid "This reveals your true nature.", "This definitively means...".
+10. INTELLECTUALLY ELEGANT BUT OPERATIONALLY CLEAR. Thoughtful, restrained, psychologically safe, reflective, precise. Avoid corporate language, academic jargon, self-help tones, motivational language, and overly poetic abstraction.
+11. NEVER label a reflection block with the strings "VTS Commentary:" or "Commentary:". Use neutral prose, blockquotes, or section divisions instead.
+
+`;
+
+// Prefix the global rules onto a report-generation system prompt.
+const withGlobalRules = (systemPrompt) => GLOBAL_LANGUAGE_RULES + systemPrompt;
+
+// ─── Input Safeguards (Artful Method Section 5) ──────────────────────────────
+//
+// Rule A: missing / unrecorded / extremely limited data (< 10 words).
+// Rule B: out-of-scope, non-art, or disruptive dialogue (AI-classified).
+//
+// When triggered, the standard report protocol is suspended and the exact
+// required notice is returned. Callers must surface notice_title + notice_message
+// verbatim and must NOT generate a report.
+
+const INPUT_NOTICES = {
+  CAPTURE: {
+    code: "TRANSCRIPT_CAPTURE",
+    notice_title: "Transcript Capture Notice",
+    notice_message:
+      "Unfortunately, we did not capture your transcript here. Please try again.",
+  },
+  REFRESH: {
+    code: "SESSION_REFRESH",
+    notice_title: "Session Refresh",
+    notice_message:
+      "It looks like our conversation went in a different direction. Would you like to try again?",
+  },
+};
+
+// Counts meaningful words across one or more transcript strings.
+const wordCount = (text) =>
+  (text || "").trim().split(/\s+/).filter(Boolean).length;
+
+// Rule B classifier — returns "OK" or "OUT_OF_SCOPE".
+const SCOPE_CHECK_SYSTEM = `You are a gatekeeper for an art-viewing reflection tool. You decide whether a transcript shows a participant genuinely engaging with a work of art (describing, interpreting, feeling, questioning, or reasoning about what they see).
+
+Return exactly one word:
+- OK, the participant is engaging with the artwork in some form, even briefly or tentatively.
+- OUT_OF_SCOPE, the participant is not engaging with the artwork at all, is talking about completely unrelated tasks, or is being intentionally hostile, rude, or inappropriate.
+
+When uncertain, return OK. Return only the single word. No punctuation. No explanation.`;
+
+// Runs Rule A then Rule B. Returns { ok: true } or { ok: false, notice }.
+// `combinedText` is the full transcript used for the word-count check; Rule B
+// uses the same text for classification.
+const checkInput = async (anthropic, combinedText) => {
+  // Rule A — blank or fewer than 10 words
+  if (wordCount(combinedText) < 10) {
+    return { ok: false, notice: INPUT_NOTICES.CAPTURE };
+  }
+
+  // Rule B — out-of-scope / disruptive (AI classification)
+  const verdict = await callClaude(
+    anthropic,
+    SCOPE_CHECK_SYSTEM,
+    `Transcript:\n---\n${combinedText}\n---\n\nReturn OK or OUT_OF_SCOPE.`,
+    10,
+  );
+  if (/OUT_OF_SCOPE/i.test(verdict)) {
+    return { ok: false, notice: INPUT_NOTICES.REFRESH };
+  }
+
+  return { ok: true };
+};
+
 // ─── Static lookup tables ───────────────────────────────────────────────────
 
 const ARCHETYPE_SUBTITLES = {
@@ -22,60 +107,115 @@ const ARCHETYPE_SUBTITLES = {
   Integrator: "Reflective Synthesiser",
 };
 
-const ARCHETYPE_DESCRIPTIONS = {
-  Storyteller: `You hold the image as a living scene. Personal memories, emotions, and idiosyncratic associations arrive before analysis — you notice what is present and what is absent, what belongs and what doesn't, and you animate the particulars with your own interior world. Your thinking is associative and grounded in the specific: a color, a shape, an object becomes a portal to something personally meaningful. You don't separate yourself from what you see. You enter it.
+// Core Cognitive Title (Artful Method Section 4) — used in the Session Read
+// dominant statement: "[Archetype Name and Core Cognitive Title]".
+const ARCHETYPE_CORE_TITLES = {
+  Storyteller: "Narrative Maker",
+  Framer: "Structure Seeker",
+  Archivist: "Context Builder",
+  Artist: "Emotional Explorer",
+  Integrator: "Reflective Synthesiser",
+};
 
-What you do: You narrate. You build scenes from fragments. You give objects roles and figures intentions. Where others describe, you tell. Your observations are never neutral — they carry feeling, preference, and personal logic. You are drawn to the particular rather than the general, and you resist interpretation that flattens the image into something abstract.
+// Orientation phrasing (Artful Method Section 4) — fills the Session Read
+// "your language naturally returned to [orientation] framing" slot.
+const ARCHETYPE_ORIENTATIONS = {
+  Storyteller: "associative and relational",
+  Framer: "structural and evidential",
+  Archivist: "historical and referential",
+  Artist: "affective and intuitive",
+  Integrator: "meta-reflective and synthetic",
+};
+
+// Fixed teaser/reveal cards shown on screens 3-6 of the onboarding report.
+// These are static per archetype (no longer AI-generated), exactly 4 per archetype.
+const ARCHETYPE_TEASER_CARDS = {
+  Storyteller: [
+    "You make meaning by exploring what is felt before what is fully understood.",
+    "You naturally notice and make personal leaps to memory, association, and private experience.",
+    "Where others seek quick answers, you enter the work and narrate it as a living story.",
+    "Your gift lies in bringing what you see to life through your senses, memory, and making it come alive through story.",
+  ],
+  Framer: [
+    "You make meaning by understanding how things are built and why they work.",
+    "You naturally notice structure, balance, and the logic holding everything together.",
+    "Where others react instinctively, you first assess how the pieces fit and function.",
+    "Your gift lies in bringing clarity to complexity and learning when to pause before organizing it.",
+  ],
+  Archivist: [
+    "You make meaning by reaching for context; where things come from and how they connect.",
+    "You naturally gather knowledge and context from everything you know to understand where this fits in the bigger picture.",
+    "Where others react instinctively, you first ask how this fits into the bigger picture.",
+    "Your gift lies in recognizing deeper patterns and learning when to pause before categorizing too quickly.",
+  ],
+  Artist: [
+    "You make meaning through emotion, memory, and human connection.",
+    "You instinctively immerse yourself in what you encounter before stepping back to understand it.",
+    "Where others look for answers, you naturally hold paradox and embrace contrasting feelings without forcing resolution or closure.",
+    "Your gift lies in noticing people, relationships, and emotional nuance before formal structure.",
+  ],
+  Integrator: [
+    "You make meaning by seeing connections between things and bringing different ideas together.",
+    "You naturally notice how the personal interacts within a bigger whole.",
+    "Where others may separate ideas, you instinctively look for how they fit together.",
+    "Your gift lies in seeing complexity clearly and learning when to simplify it for others.",
+  ],
+};
+
+const ARCHETYPE_DESCRIPTIONS = {
+  Storyteller: `You hold the image as a living scene. Personal memories, emotions, and idiosyncratic associations arrive before analysis, you notice what is present and what is absent, what belongs and what doesn't, and you animate the particulars with your own interior world. Your thinking is associative and grounded in the specific: a color, a shape, an object becomes a portal to something personally meaningful. You don't separate yourself from what you see. You enter it.
+
+What you do: You narrate. You build scenes from fragments. You give objects roles and figures intentions. Where others describe, you tell. Your observations are never neutral, they carry feeling, preference, and personal logic. You are drawn to the particular rather than the general, and you resist interpretation that flattens the image into something abstract.
 
 Where this might show up? In conversations where you bring context no one else thought to provide. In meetings where you humanize the data. In creative work where you find the story hiding inside the structure.
 
-Your growing edge: The risk is that the story you bring is so vivid it becomes the only story. Staying a little longer with what is actually there — before meaning arrives — can open the image further.
+Your growing edge: The risk is that the story you bring is so vivid it becomes the only story. Staying a little longer with what is actually there, before meaning arrives, can open the image further.
 
-Expanding Your Range: You hold the whole image as a scene. What would happen if you stayed with just one formal element — a line, a shape, a relationship between two areas — and followed only that?
+Expanding Your Range: You hold the whole image as a scene. What would happen if you stayed with just one formal element, a line, a shape, a relationship between two areas, and followed only that?
 
 Moving toward the Framer: The Framer slows down before explaining. «What is this object actually doing? Where is it positioned, and in relation to what?»
 
-Moving toward the Artist: The Artist enters the image through feeling rather than story. «What does this image make you feel — not what does it remind you of, but what emotional state does it produce?»`,
+Moving toward the Artist: The Artist enters the image through feeling rather than story. «What does this image make you feel, not what does it remind you of, but what emotional state does it produce?»`,
 
   Framer: `You hold the image with structure. You notice what is happening to specific objects and forms, describe placement and direction concretely, and reason from what you see rather than what you feel. Your observations are grounded in common sense and a clear concept of how things work. You ask about technique, about function, about what the artist did and why. You compare formal properties. Your thinking is organized, sequential, and anchored in the visible.
 
-What you do: You build an account. You describe what is there with precision — what is adjacent to what, what direction things face, how something is made. You use cause-and-effect logic: «it makes sense that this is here because...». You evaluate skill and craftsmanship. You distinguish between what you see and what you conclude.
+What you do: You build an account. You describe what is there with precision, what is adjacent to what, what direction things face, how something is made. You use cause-and-effect logic: «it makes sense that this is here because...». You evaluate skill and craftsmanship. You distinguish between what you see and what you conclude.
 
-Why this matters: This is how rigorous seeing works — not racing to meaning, but accounting for what is actually present. In a professional context, the Framer is the person who slows the group down and says: «What are we actually looking at?» before interpretation begins.
+Why this matters: This is how rigorous seeing works, not racing to meaning, but accounting for what is actually present. In a professional context, the Framer is the person who slows the group down and says: «What are we actually looking at?» before interpretation begins.
 
-Your growing edge: The risk is that precision becomes a ceiling. The image can hold more than what is formally there. Allowing meaning to arrive — even speculatively — can take your observations further.
+Your growing edge: The risk is that precision becomes a ceiling. The image can hold more than what is formally there. Allowing meaning to arrive, even speculatively, can take your observations further.
 
-Expanding Your Range: You hold the image through structure. What would happen if you let the image affect you before you explained it — just sat with the feeling it produces?
+Expanding Your Range: You hold the image through structure. What would happen if you let the image affect you before you explained it, just sat with the feeling it produces?
 
-Moving toward the Storyteller: The Storyteller doesn't wait for reasons. «What does this remind you of — not logically, but personally?»
+Moving toward the Storyteller: The Storyteller doesn't wait for reasons. «What does this remind you of, not logically, but personally?»
 
 Moving toward the Archivist: The Archivist asks what this object or image is part of. «Does this belong to a tradition, a period, a conversation across time?»`,
 
-  Archivist: `You hold the image in context. Art-historical references, artist names, periods, and styles arrive naturally as you look — you place what you see within a larger aesthetic conversation. You recall facts, identify precedents, and ask about authorship and medium. You classify, categorize, and situate. Your thinking connects the specific work to the broader field of which it is a part.
+  Archivist: `You hold the image in context. Art-historical references, artist names, periods, and styles arrive naturally as you look, you place what you see within a larger aesthetic conversation. You recall facts, identify precedents, and ask about authorship and medium. You classify, categorize, and situate. Your thinking connects the specific work to the broader field of which it is a part.
 
-What you do: You locate. You bring what you know — about movements, techniques, influences — and use it to deepen what you see. You ask where this came from and who made it and under what conditions. You find the niche a thing belongs to. You treat the artwork as a document within a larger history.
+What you do: You locate. You bring what you know, about movements, techniques, influences, and use it to deepen what you see. You ask where this came from and who made it and under what conditions. You find the niche a thing belongs to. You treat the artwork as a document within a larger history.
 
-Why this matters: Context is not decoration — it is a dimension of meaning. Knowing that a work belongs to a particular moment or conversation changes what the image says. The Archivist gives everyone else in the room the frame.
+Why this matters: Context is not decoration, it is a dimension of meaning. Knowing that a work belongs to a particular moment or conversation changes what the image says. The Archivist gives everyone else in the room the frame.
 
 Your growing edge: The risk is that knowing becomes a distance. The frame can sit between you and the image. What would you find if you set aside what you know and let the image address you directly?
 
-Expanding Your Range: You hold the image through what you know. What single detail — unconnected to anything historical — catches your attention right now?
+Expanding Your Range: You hold the image through what you know. What single detail, unconnected to anything historical, catches your attention right now?
 
-Moving toward the Framer: The Framer stays with the formal before the contextual. «What is this object actually doing — independent of what period it's from?»
+Moving toward the Framer: The Framer stays with the formal before the contextual. «What is this object actually doing, independent of what period it's from?»
 
-Moving toward the Artist: The Artist lets the image produce a feeling before producing a fact. «What emotional state does this work put you in — before you name what it is?»`,
+Moving toward the Artist: The Artist lets the image produce a feeling before producing a fact. «What emotional state does this work put you in, before you name what it is?»`,
 
-  Artist: `You hold the image through feeling. Emotional responses, empathic entry into the scene, and sensitivity to mood and atmosphere shape how you see. You wonder about meaning. You notice paradoxes and tensions — things that feel contradictory or unresolved. Your observations carry emotional weight. You enter the image by imagining what figures feel, what the scene suggests, what the work is doing beyond its surface.
+  Artist: `You hold the image through feeling. Emotional responses, empathic entry into the scene, and sensitivity to mood and atmosphere shape how you see. You wonder about meaning. You notice paradoxes and tensions, things that feel contradictory or unresolved. Your observations carry emotional weight. You enter the image by imagining what figures feel, what the scene suggests, what the work is doing beyond its surface.
 
-What you do: You sense. You attune. You describe the emotional register of what you see — the tone, the atmosphere, the feeling the work produces. You imagine yourself inside the image. You hold contradictions without resolving them. You make meaning through feeling rather than explanation.
+What you do: You sense. You attune. You describe the emotional register of what you see, the tone, the atmosphere, the feeling the work produces. You imagine yourself inside the image. You hold contradictions without resolving them. You make meaning through feeling rather than explanation.
 
-Why this matters: Feeling is not the absence of thinking — it is a form of intelligence. The Artist picks up what formal analysis misses: the tension between two figures, the weight of a color, the ambivalence in a gesture. These are real and significant features of how works operate.
+Why this matters: Feeling is not the absence of thinking, it is a form of intelligence. The Artist picks up what formal analysis misses: the tension between two figures, the weight of a color, the ambivalence in a gesture. These are real and significant features of how works operate.
 
-Your growing edge: The risk is that emotional response can become subjective closure — a feeling that forecloses further looking. What would you find if you stayed with the image after the feeling arrived?
+Your growing edge: The risk is that emotional response can become subjective closure, a feeling that forecloses further looking. What would you find if you stayed with the image after the feeling arrived?
 
 Expanding Your Range: You hold the image through emotional attunement. What would happen if you stepped back and described what you see before saying what you feel?
 
-Moving toward the Archivist: The Archivist asks what this image is part of. «Does this feeling connect to a tradition — other works that produce the same state?»
+Moving toward the Archivist: The Archivist asks what this image is part of. «Does this feeling connect to a tradition, other works that produce the same state?»
 
 Moving toward the Integrator: The Integrator holds emotion alongside observation and logic at once. «How does what you feel connect to what you see and what you know?»`,
 
@@ -106,6 +246,21 @@ You're welcome to share this portrait, along with the artwork you explored and y
 
 // ─── Claude call helper ──────────────────────────────────────────────────────
 
+// Em-dash ban (Global Rule 1). Models sometimes substitute a literal "--" when
+// told not to use "—", so strip both forms from every AI response. Replace with
+// a comma so sentences stay grammatical. Collapses spaced and unspaced variants.
+const sanitizeDashes = (text) =>
+  (text || "")
+    // a dash (em/en or "--") right after sentence-ending punctuation is just a
+    // separator: drop it and keep a single space.
+    .replace(/([.!?])\s*(?:[—–]|-{2,})\s*/g, "$1 ")
+    // remaining em/en dashes, spaced or not, become commas
+    .replace(/\s*[—–]\s*/g, ", ")
+    // remaining double-hyphen substitutes become commas
+    .replace(/\s*-{2,}\s*/g, ", ")
+    // tidy any accidental doubled commas created above
+    .replace(/,\s*,/g, ",");
+
 const callClaude = async (anthropic, systemPrompt, userMessage, maxTokens) => {
   try {
     const message = await anthropic.messages.create({
@@ -114,10 +269,11 @@ const callClaude = async (anthropic, systemPrompt, userMessage, maxTokens) => {
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
     });
-    return message.content
+    const raw = message.content
       .filter((b) => b.type === "text")
       .map((b) => b.text)
       .join("");
+    return sanitizeDashes(raw);
   } catch (error) {
     const status = error.status;
     if (status === 401)
@@ -192,27 +348,12 @@ Count the signals for each archetype. Return ONLY the name of the archetype with
 Return a single word. One of exactly: Storyteller, Framer, Archivist, Artist, Integrator.
 No explanation. No punctuation. Just the word.`;
 
-// ─── Prompt 2: Teaser Card Lines ─────────────────────────────────────────────
-
-const TEASER_SYSTEM = `You write short, evocative descriptor lines for an aesthetic intelligence app.
-Each line reveals one dimension of the person's thinking style.
-
-Rules:
-- Second person ("You..."), present tense
-- 12–22 words maximum per line
-- No bullet points, no headers, no numbers
-- Do NOT use the archetype name itself in any line
-- Do NOT use clinical or diagnostic language
-- Each line should feel like a gentle revelation, not a label
-- Lines should cover different dimensions: how they perceive, how they process, what they naturally do, what gift this gives them
-- Return exactly 4 lines, each on its own line, nothing else`;
-
 // ─── Prompt 3: Quotes + Meanings ─────────────────────────────────────────────
 
 const QUOTES_SYSTEM = `You are an expert in Visual Thinking Strategies (VTS) and aesthetic cognition.
 You analyse what a person's words reveal about how they think when looking at art.
 
-VTS PARAPHRASING RULES — follow exactly:
+VTS PARAPHRASING RULES, follow exactly:
 
 1. NEVER praise or evaluate. Forbidden phrases: "great observation", "interesting point",
    "insightful", "well said", any form of compliment.
@@ -234,7 +375,7 @@ VTS PARAPHRASING RULES — follow exactly:
    - How it connects to their dominant archetype pattern
 
 5. SELECT QUOTES that best demonstrate the dominant archetype. Prioritise quotes that show
-   the thinking pattern most clearly — not just the most dramatic or memorable lines.
+   the thinking pattern most clearly, not just the most dramatic or memorable lines.
 
 6. QUOTE SELECTION PRIORITY for each archetype:
    Storyteller:  personal associations, narrative moves, character animation
@@ -243,10 +384,10 @@ VTS PARAPHRASING RULES — follow exactly:
    Artist:       emotional responses, empathic entry, mood/feeling statements
    Integrator:   synthesis statements, multi-thread observations, theme emergence
 
-OUTPUT FORMAT — follow exactly, no deviations:
+OUTPUT FORMAT, follow exactly, no deviations:
 
 QUOTE 1:
-"[exact quote from transcript — do not paraphrase the quote itself]"
+"[exact quote from transcript, do not paraphrase the quote itself]"
 Meaning: [2-4 sentences. First sentence names the thinking move using metacognitive language. Remaining sentences explain the cognitive stage and archetype connection.]
 
 QUOTE 2:
@@ -279,7 +420,7 @@ Strict rules:
 3. Under "Your Primary Aesthetic Archetype" include the badge label: [Name] · [Subtitle]
 4. Write each section as clean prose. No bullet points. No markdown symbols.
 5. Do not add any sections not listed above.
-6. Do not summarise, shorten, or rewrite the archetype description — use it as given.
+6. Do not summarise, shorten, or rewrite the archetype description, use it as given.
 7. Second person throughout ("You hold...", "You synthesise...").
 8. Tone: warm, precise, non-clinical, non-diagnostic.`;
 
@@ -287,6 +428,12 @@ Strict rules:
 
 const analyzeArchetype = async ({ transcript }) => {
   const anthropic = client();
+
+  // ── Input Safeguards (Section 5) — Rule A then Rule B
+  const guard = await checkInput(anthropic, transcript);
+  if (!guard.ok) {
+    return { rejected: true, notice: guard.notice };
+  }
 
   // ── Step 1: Detect archetype (sequential — all other prompts depend on this)
   const rawArchetype = await callClaude(
@@ -317,37 +464,26 @@ const analyzeArchetype = async ({ transcript }) => {
   const archetypeDescription = ARCHETYPE_DESCRIPTIONS[archetypeName];
   const isShortTranscript = transcript.trim().split(/\s+/).length < 50;
 
-  // ── Step 2, 3 & 4: Run in parallel once archetype is known
-  const [teaserRaw, quotesRaw, reportRaw] = await Promise.all([
-    // Prompt 2 — teaser lines
-    callClaude(
-      anthropic,
-      TEASER_SYSTEM,
-      `The person's dominant archetype is: ${archetypeName}\n\nArchetype description for reference:\n${archetypeDescription}\n\nWrite 4 short teaser lines that reveal this person's thinking style across 4 dimensions.\nReturn exactly 4 lines, one per line, no labels or numbers.`,
-      200,
-    ),
+  // ── Teaser cards are static per archetype (no longer AI-generated)
+  const teaserLines = ARCHETYPE_TEASER_CARDS[archetypeName] || [];
+
+  // ── Step 3 & 4: Run in parallel once archetype is known
+  const [quotesRaw, reportRaw] = await Promise.all([
     // Prompt 3 — quotes + meanings
     callClaude(
       anthropic,
-      QUOTES_SYSTEM,
+      withGlobalRules(QUOTES_SYSTEM),
       `Dominant archetype: ${archetypeName}\n\nSession transcript:\n---TRANSCRIPT START---\n${transcript}\n---TRANSCRIPT END---\n\nSelect the 4 quotes that best demonstrate the ${archetypeName} thinking pattern.\nFollow the output format exactly.`,
       1200,
     ),
     // Prompt 4 — full report
     callClaude(
       anthropic,
-      REPORT_SYSTEM,
-      `Generate the full Aesthetic Archetype Portrait Report.\n\nArchetype detected: ${archetypeName}\nArchetype subtitle: ${archetypeSubtitle}\n\nUSE THIS INTRO PARAGRAPH VERBATIM — DO NOT CHANGE ANY WORD:\n---\n${FIXED_INTRO}\n---\n\nARCHETYPE DESCRIPTION TO USE FOR ALL SECTIONS:\n${archetypeDescription}`,
+      withGlobalRules(REPORT_SYSTEM),
+      `Generate the full Aesthetic Archetype Portrait Report.\n\nArchetype detected: ${archetypeName}\nArchetype subtitle: ${archetypeSubtitle}\n\nUSE THIS INTRO PARAGRAPH VERBATIM. DO NOT CHANGE ANY WORD:\n---\n${FIXED_INTRO}\n---\n\nARCHETYPE DESCRIPTION TO USE FOR ALL SECTIONS:\n${archetypeDescription}`,
       1500,
     ),
   ]);
-
-  // ── Parse teaser lines
-  const teaserLines = teaserRaw
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0)
-    .slice(0, 4);
 
   // ── Parse report sections
   const reportSections = parseReportSections(reportRaw);
@@ -447,238 +583,41 @@ const parseQuotes = (quotesText) => {
     .slice(0, 4);
 };
 
-// ─── Lesson Report — Prompts & Meanings system ───────────────────────────────
+// ─── Lesson Report — Session Read (Artful Method Report Type 2) ──────────────
 //
-// Structure (matches Figma images 9-16):
-//   intro (fixed)
-//   archetype badge
-//   per-prompt: "What You Said · What It Reveals · Prompt N"
-//     quote(s) from that prompt + VTS meaning
-//   The Perception Framework (all 5 archetypes)
-//   Moving Across Your Range
-//   How might this growth show up?
+// A concise, observational snapshot of the single perceptual mode that surfaced
+// most strongly across the lesson's three prompts. Per the framework, the
+// Session Read deliberately EXCLUDES verbatim quotes, deep analysis, expansion
+// prompts, and cognitive commentary sections. It is built from a fixed template
+// with AI-filled summary fragments and ends with the exact required sign-off.
 
-const LESSON_FIXED_INTRO = `You spent time with three paintings, thinking out loud. The way you moved through each one, what you named first, what pulled you in, what made you pause, is not random. Taken together, these three encounters reveal something consistent about how your mind makes meaning, and they also show a range that opened up as you kept looking.
+const SESSION_READ_SIGNOFF =
+  "We can't wait to see what you find next. Try the next session.";
 
-This is your Aesthetic Archetype portrait.
+// AI fills only two short fragments. The surrounding template is fixed so the
+// structure cannot drift. The orientation phrase is supplied from the framework
+// (ARCHETYPE_ORIENTATIONS); the model only writes a single conditional clause
+// describing the cognitive logic the participant appeared to use.
+const SESSION_READ_SYSTEM = `You write one short fragment for a "Session Read" snapshot in an art-viewing reflection tool.
 
-What follows is a current cognitive pattern, not a fixed identity. It describes how you made meaning across these three encounters, right now. Development is not linear, and your range is not defined by three transcripts. What these three images show is where you tend to begin, and what becomes available when the image gives you permission to move differently.`;
+You will be given the participant's dominant perceptual mode and their transcript across three prompts. Write a SINGLE clause (no leading capital, no trailing period) that completes this sentence:
 
-const LESSON_PERCEPTION_FRAMEWORK_INTRO = `You use all five of these. What varies is which feels most like home, and which one showed up most when you looked at these images.`;
+"You appeared to build meaning by ___"
 
-const LESSON_PERCEPTION_FRAMEWORK_ARCHETYPES = [
-  {
-    name: "Storyteller",
-    subtitle: "Narrative Maker",
-    description: "You enter an image before you analyse it. You bring your senses, your memories, your instincts and you weave what you see into something alive. The Storyteller makes meaning fast and makes it personal.",
-  },
-  {
-    name: "Framer",
-    subtitle: "Structure Seeker",
-    description: "You want to know how something works. You look for the logic, the craft, the intention. You measure what you see against what you know and you trust that standard. The Framer brings order to complexity.",
-  },
-  {
-    name: "Archivist",
-    subtitle: "Context Builder",
-    description: "You reach for context immediately. Who made this. When. Why. How it connects to everything else you know. Your thinking is layered and historically fluent. The Archivist sees not just what something is, but where it belongs.",
-  },
-  {
-    name: "Artist",
-    subtitle: "Emotional Explorer",
-    description: "You let meaning unfold rather than rushing toward it. You hold complexity without needing to resolve it. You follow intuition as closely as knowledge. The Artist asks the question nobody else was willing to ask.",
-  },
-  {
-    name: "Integrator",
-    subtitle: "Reflective Synthesiser",
-    description: "You hold all of it at once, the personal and the universal, the emotional and the analytical. These aren't separate modes for you, they move together. The Integrator sees the whole picture, and knows it will keep revealing itself.",
-  },
-];
+The clause should name, in conditional and observational language, the cognitive logic the participant appeared to use (for example: "noticing what was happening to specific forms before naming what they meant", or "entering the scene and giving the figures intentions and histories"). Ground it in what the transcript actually shows.
 
-// Secondary archetype detection — returns the 2nd highest scoring archetype
-const SECONDARY_DETECTION_SYSTEM = `You are an expert in Visual Thinking Strategies (VTS) and aesthetic cognition analysis.
-You classify how people think when looking at art using a scoring matrix.
+Hard rules:
+- Return ONLY the clause. No quotes, no labels, no extra sentences.
+- 8 to 30 words.
+- Conditional, observational tone. No praise. No diagnosis. No identity claims.
+- Describe the thinking move, not the artwork's meaning.
+- Never use an em dash.`;
 
-Score the transcript against these archetype signals:
-
-STORYTELLER
-- Random single observations of objects, colors, shapes noted individually
-- Personal idiosyncratic "looks like" associations from memory
-- Wondering about presence, absence, or placement of elements
-- Emotional personal history or memories triggered by the image
-- Preference linked to specific objects or particulars within the artwork
-- Qualitative judgments based on personal internalized criteria
-
-FRAMER
-- Logic-based descriptions: what is happening to a particular object/form
-- Descriptions based on viewer's concept of reality or common sense
-- Placement, direction, formal issues taken concretely
-- Technique, craftsmanship, skill, proficiency observations
-- Cause-and-effect reasoning: "it makes sense that..."
-- Comparisons of single formal properties
-- Wondering about technique, function, or the artist
-
-ARCHIVIST
-- Art-historical references, artist names, periods, styles, schools
-- Aesthetic classification: groupings to place things in a niche
-- Recalls aesthetic or art-historical facts
-- Personal aesthetic history: "this reminds me of [artwork/artist]"
-- Rhetorical questions about authorship or medium
-- What an object signifies in art-historical terms
-
-ARTIST
-- Emotional effect statements: "it feels like...", "the mood seems..."
-- Empathic entry into scene: imagining what figures feel
-- Feeling-based judgments and emotional responses
-- Wondering about meaning
-- Dichotomies, paradoxes, contrasting feelings
-- Emotional/expressive observations
-
-INTEGRATOR
-- Synthesis statements: "taking all of this into account..."
-- "A theme that seems to be emerging is..."
-- "Putting together what everyone said..."
-- Summation of metaphoric suppositions
-- Integrating observation + logic + emotion simultaneously
-- Universal states or conditions
-
-The primary archetype has already been identified. Return ONLY the name of the archetype with the SECOND highest count — not the primary.
-Return a single word. One of exactly: Storyteller, Framer, Archivist, Artist, Integrator.
-No explanation. No punctuation. Just the word.`;
-
-// Per-prompt VTS quote + meaning extraction
-const LESSON_PROMPT_QUOTES_SYSTEM = `You are an expert in Visual Thinking Strategies (VTS) and aesthetic cognition.
-You analyse what a person said during one specific prompt in front of an artwork.
-
-VTS PARAPHRASING RULES — follow exactly:
-
-1. NEVER praise or evaluate. Forbidden phrases: "great observation", "interesting point", "insightful", "well said", any form of compliment.
-
-2. Select 1–2 of the most revealing moments from the transcript for this prompt.
-   - If the transcript is long, quote a specific phrase or sentence verbatim.
-   - If the transcript is short (1–3 sentences), you may quote the entire response verbatim as QUOTE 1.
-   - Never fabricate, rephrase, or reconstruct — only use words actually present in the transcript.
-   - You MUST always produce at least QUOTE 1. Even a single sentence transcript has a quote.
-
-3. For each quote, write a Meaning block that:
-   - Names the thinking move (Observing / Interpreting / Reasoning / Feeling / Connecting / Wondering)
-   - Uses stems: "You're noticing..." / "You're constructing..." / "You're sensing..." / "You're raising the question..."
-   - Uses conditional language where appropriate: "might suggest", "seems to", "could indicate"
-   - Identifies what cognitive stage this represents and how it connects to the dominant archetype
-
-OUTPUT FORMAT — follow exactly, no deviations:
-
-QUOTE 1:
-"[verbatim text from transcript]"
-Meaning: [2-3 sentences using VTS metacognitive language]
-
-QUOTE 2:
-"[verbatim text from transcript]"
-Meaning: [2-3 sentences using VTS metacognitive language]
-
-Always output at least QUOTE 1. Only output QUOTE 2 if the transcript contains a second distinct moment worth highlighting.`;
-
-// Archetype narrative — appears under "Your Primary Aesthetic Archetypes" (Figma image 10)
-// Walks through each prompt describing how both archetypes surfaced
-const ARCHETYPE_NARRATIVE_SYSTEM = `You write the narrative body under "Your Primary Aesthetic Archetypes" for an Aesthetic Archetype lesson report.
-
-This section walks through each of the three prompts in sequence, describing exactly how the primary and secondary archetypes showed up in the person's responses. It is written as vivid, precise prose that names what the person actually did in each prompt — not what the archetypes mean in general.
-
-REQUIRED STRUCTURE — exactly 4 paragraphs:
-
-Paragraph 1 — "In the first prompt..."
-  Begin with "In the first prompt" and describe what the person did in prompt 1. Name the thinking mode visible (primary archetype). Be specific: what did they notice first, how did they enter the image, what was their move? Use language that reflects what is actually in the transcript.
-
-Paragraph 2 — "The second prompt..." or "In the second prompt..."
-  Begin with "The second prompt" or "In the second prompt" and describe what happened in prompt 2. Did the same mode continue? Did something shift? Name the moment where the secondary archetype began to surface, if it did. Be precise about what changed.
-
-Paragraph 3 — "By the third prompt..." or "In the third prompt..."
-  Begin with "By the third prompt" or "In the third prompt" and describe prompt 3. Was a different mode dominant? Did the secondary archetype take over? Name what changed and what stayed the same.
-
-Paragraph 4 — synthesis (no fixed opening phrase)
-  Bring it together: what do these three encounters show together? What does the combination of the primary and secondary archetype reveal about this person's perceptual intelligence? Write this as a warm, forward-looking conclusion that connects both archetypes.
-
-Rules:
-- Second person ("you"), past tense for describing each prompt, present tense in the synthesis
-- Exactly 4 paragraphs — no more, no fewer
-- No bullet points, no markdown, no section headings
-- No praise or evaluation. Forbidden: "great", "insightful", "interesting", "well said", "impressive"
-- Tone: warm, precise, non-clinical — like a perceptive observer describing what they witnessed
-- Name the archetype modes explicitly (Storyteller, Framer, Archivist, Artist, Integrator) where relevant
-- Ground every claim in what is actually in the transcripts — do not invent or generalise
-- Output only the 4 body paragraphs`;
-
-// Moving Across Your Range narrative — thematic synthesis (Figma images 13-14)
-const LESSON_RANGE_SYSTEM = `You write the "Moving Across Your Range" section for an Aesthetic Archetype lesson report.
-
-This section is a thematic synthesis — not a prompt-by-prompt walkthrough (that appears earlier in the report). It describes what the movement across all three encounters reveals about the person's cognitive range as a whole: what their home base archetype gives them, which other archetype(s) became available, and what the shift between them means for how they think.
-
-REQUIRED STRUCTURE — exactly 3–4 paragraphs:
-
-Paragraph 1: Name what the home base archetype gives this person as a foundation. What strength or default does it provide? Be concrete about the cognitive move it represents.
-
-Paragraph 2: Describe when and how the range archetype (secondary) became available during the session. What condition invited it? Was it a particular image, a question the artwork posed, an emotional opening? Describe the mechanism of the shift.
-
-Paragraph 3: Describe what this range reveals — the difference between arriving at the secondary archetype from this home base versus arriving there from a different starting point. What is the particular quality of this person's range?
-
-Optional Paragraph 4 (only if needed): A forward-looking synthesis — what becomes possible when both modes are available to this person.
-
-Rules:
-- Second person ("you"), present/past tense as appropriate
-- 3–4 paragraphs, no bullet points, no markdown, no headings
-- Do NOT restate what happened in each individual prompt (that is covered in the archetype narrative)
-- Warm, precise, non-clinical tone
-- Name specific archetypes where relevant
-- Do not name the section heading — output only the body paragraphs
-- Forbidden: "great", "insightful", "interesting", any form of praise`;
-
-// "How might this growth show up?" section
-const LESSON_GROWTH_SYSTEM = `You write the "How might this growth show up?" section for an Aesthetic Archetype lesson report.
-
-This section describes how the cognitive range shown across the three prompts might manifest beyond the art room — in work, relationships, creative practice, and daily life.
-
-Rules:
-- Second person ("you"), present/future tense
-- 2–3 paragraphs
-- No bullet points, no markdown
-- Grounded in the specific archetypes detected, not generic
-- Reference both the home base and the range archetypes
-- Do not name the section heading — output only the body text`;
-
-// Parse per-prompt quotes from Claude output
-// fallbackTranscript is used if Claude returns no parseable quotes (e.g. very short text)
-const parseLessonPromptQuotes = (text, fallbackTranscript = "") => {
-  const parsed = text
-    .split(/QUOTE \d+:/i)
-    .slice(1)
-    .map((block) => {
-      const lines = block.trim().split("\n").filter((l) => l.trim());
-      const quoteLine = lines[0]?.replace(/^[""\u201c\u201d]|[""\u201c\u201d]$/g, "").trim() ?? "";
-      const meaningIdx = lines.findIndex((l) => /^Meaning:/i.test(l.trim()));
-      const meaning =
-        meaningIdx !== -1
-          ? lines.slice(meaningIdx).join(" ").replace(/^Meaning:\s*/i, "").trim()
-          : "";
-      return { quote: quoteLine, meaning };
-    })
-    .filter((q) => q.quote.length > 0)
-    .slice(0, 2);
-
-  // Fallback: if Claude returned nothing parseable, use the raw transcript as the quote
-  // with a generic VTS meaning so the report is never empty
-  if (parsed.length === 0 && fallbackTranscript.trim().length > 0) {
-    return [
-      {
-        quote: fallbackTranscript.trim(),
-        meaning:
-          "You're sharing your full response to this prompt. The observation connects directly to how you engage with what you see, reflecting your dominant perceptual pattern.",
-      },
-    ];
-  }
-
-  return parsed;
-};
-
-// ─── Main lesson report function ─────────────────────────────────────────────
+// ─── Session Read function (replaces the former rich lesson report) ──────────
+//
+// Returns { rejected: true, notice } when an input safeguard fires (Section 5),
+// otherwise the Session Read payload. Callers must surface the notice verbatim
+// and must NOT generate a report when rejected.
 
 const analyzeLessonArchetype = async ({ transcripts }) => {
   // transcripts = array of 3 strings, one per prompt
@@ -691,7 +630,13 @@ const analyzeLessonArchetype = async ({ transcripts }) => {
     .map((t, i) => `PROMPT ${i + 1}:\n${t}`)
     .join("\n\n---\n\n");
 
-  // Step 1: Detect dominant archetype from combined transcript
+  // ── Input Safeguards (Section 5) — Rule A then Rule B
+  const guard = await checkInput(anthropic, transcripts.join(" "));
+  if (!guard.ok) {
+    return { rejected: true, notice: guard.notice };
+  }
+
+  // ── Step 1: Detect the single dominant archetype
   const rawArchetype = await callClaude(
     anthropic,
     DETECTION_SYSTEM,
@@ -706,118 +651,47 @@ const analyzeLessonArchetype = async ({ transcripts }) => {
   }
 
   const archetypeSubtitle = ARCHETYPE_SUBTITLES[archetypeName];
+  const coreTitle = ARCHETYPE_CORE_TITLES[archetypeName];
+  const orientation = ARCHETYPE_ORIENTATIONS[archetypeName];
 
-  // Step 2: Detect secondary archetype + all per-prompt + range + growth in parallel
-  // archetypeNarrative requires the validated secondary name, so it runs in step 3
-  const [
-    rawSecondary,
-    promptQuotesRaw1,
-    promptQuotesRaw2,
-    promptQuotesRaw3,
-    _unused,
-    rangeRaw,
-    growthRaw,
-  ] = await Promise.all([
-    // Secondary archetype (2nd highest scorer)
-    callClaude(
-      anthropic,
-      SECONDARY_DETECTION_SYSTEM,
-      `Primary archetype already identified: ${archetypeName}\n\nAnalyze this lesson transcript and return the SECOND dominant archetype:\n\n---TRANSCRIPT START---\n${combinedTranscript}\n---TRANSCRIPT END---`,
-      20,
-    ),
-    // Per-prompt quote extraction
-    callClaude(
-      anthropic,
-      LESSON_PROMPT_QUOTES_SYSTEM,
-      `Dominant archetype: ${archetypeName}\n\nPrompt 1 transcript:\n${transcripts[0]}\n\nExtract the 1–2 most revealing quotes from this prompt. Follow the output format exactly.`,
-      600,
-    ),
-    callClaude(
-      anthropic,
-      LESSON_PROMPT_QUOTES_SYSTEM,
-      `Dominant archetype: ${archetypeName}\n\nPrompt 2 transcript:\n${transcripts[1]}\n\nExtract the 1–2 most revealing quotes from this prompt. Follow the output format exactly.`,
-      600,
-    ),
-    callClaude(
-      anthropic,
-      LESSON_PROMPT_QUOTES_SYSTEM,
-      `Dominant archetype: ${archetypeName}\n\nPrompt 3 transcript:\n${transcripts[2]}\n\nExtract the 1–2 most revealing quotes from this prompt. Follow the output format exactly.`,
-      600,
-    ),
-    // Archetype narrative — appears under "Your Primary Aesthetic Archetypes" heading (Figma image 10)
-    // Written AFTER secondary is detected — but since we run in parallel, we pass secondary placeholder.
-    // We resolve this after Promise.all using the validated secondaryName.
-    // For now pass "secondary archetype" as placeholder — overridden below after validation.
-    null, // placeholder, replaced below
-    // Range narrative — thematic synthesis (Figma images 13-14)
-    callClaude(
-      anthropic,
-      LESSON_RANGE_SYSTEM,
-      `Primary archetype: ${archetypeName} (${archetypeSubtitle})\n\nAll 3 prompt transcripts:\n---\n${combinedTranscript}\n---\n\nWrite the "Moving Across Your Range" thematic synthesis.`,
-      800,
-    ),
-    // Growth section
-    callClaude(
-      anthropic,
-      LESSON_GROWTH_SYSTEM,
-      `Dominant archetype: ${archetypeName}\nArchetype subtitle: ${archetypeSubtitle}\n\nAll 3 prompt transcripts:\n---\n${combinedTranscript}\n---\n\nWrite the "How might this growth show up?" body text.`,
-      600,
-    ),
-  ]);
-
-  // Validate secondary — fall back to a different archetype if Claude returns the same one
-  const secondaryName = validArchetypes.includes(rawSecondary.trim()) && rawSecondary.trim() !== archetypeName
-    ? rawSecondary.trim()
-    : validArchetypes.find((a) => a !== archetypeName) ?? archetypeName;
-
-  const secondarySubtitle = ARCHETYPE_SUBTITLES[secondaryName];
-
-  // Step 3: Now generate archetype narrative with validated secondary name
-  const archetypeNarrativeRawFinal = await callClaude(
+  // ── Step 2: AI fills the single "build meaning by ___" clause
+  const rawClause = await callClaude(
     anthropic,
-    ARCHETYPE_NARRATIVE_SYSTEM,
-    `Primary archetype: ${archetypeName} (${archetypeSubtitle})\nSecondary archetype: ${secondaryName} (${ARCHETYPE_SUBTITLES[secondaryName]})\n\nPROMPT 1 transcript:\n${transcripts[0]}\n\nPROMPT 2 transcript:\n${transcripts[1]}\n\nPROMPT 3 transcript:\n${transcripts[2]}\n\nWrite the 4-paragraph archetype narrative. Start paragraph 1 with "In the first prompt", paragraph 2 with "The second prompt" or "In the second prompt", paragraph 3 with "By the third prompt" or "In the third prompt", then a synthesising paragraph 4.`,
-    1000,
+    withGlobalRules(SESSION_READ_SYSTEM),
+    `Dominant mode: ${archetypeName} (${coreTitle})\n\nTranscript across three prompts:\n---\n${combinedTranscript}\n---\n\nWrite the single clause completing "You appeared to build meaning by ___".`,
+    120,
   );
 
-  return {
-    // ── Screen: Intro (Figma image 9)
-    intro: LESSON_FIXED_INTRO,
+  // Normalise the clause: strip wrapping quotes, a trailing period, and any
+  // accidental leading "You appeared to build meaning by".
+  let clause = rawClause
+    .trim()
+    .replace(/^["'“”]|["'“”]$/g, "")
+    .replace(/^you appeared to build meaning by\s*/i, "")
+    .replace(/\.$/, "")
+    .trim();
+  // Safety net for the em-dash ban inside the AI fragment.
+  clause = clause.replace(/\s*—\s*/g, ", ");
 
-    // ── Screen: Your Primary Aesthetic Archetypes (Figma image 10)
-    // Badge: "The Framer & The Artist" + subtitles
+  // ── Assemble the fixed-template Session Read body (Report Type 2)
+  const dominantStatement = `The perceptual mode that appeared to surface most strongly in this session was the ${archetypeName}: ${coreTitle}.`;
+  const orientationLine = `Across this conversation, your language naturally returned to ${orientation} framing. You appeared to build meaning by ${clause}.`;
+
+  const sessionInsight = `${dominantStatement}\n\n${orientationLine}`;
+
+  return {
+    reportType: "session_read",
     archetype: {
       name: archetypeName,
       subtitle: archetypeSubtitle,
+      coreTitle,
     },
-    secondaryArchetype: {
-      name: secondaryName,
-      subtitle: secondarySubtitle,
-    },
-    // Claude-generated narrative under the badge — prompt-by-prompt account of how both
-    // archetypes surfaced across the three encounters (Figma image 10 body text)
-    archetypeNarrative: archetypeNarrativeRawFinal.trim(),
-
-    // ── Screen: What You Said · What It Reveals (Figma images 11-12)
-    // Per-prompt quote+meaning blocks, one section per prompt
-    promptInsights: [
-      { prompt_number: 1, quotes: parseLessonPromptQuotes(promptQuotesRaw1, transcripts[0]) },
-      { prompt_number: 2, quotes: parseLessonPromptQuotes(promptQuotesRaw2, transcripts[1]) },
-      { prompt_number: 3, quotes: parseLessonPromptQuotes(promptQuotesRaw3, transcripts[2]) },
-    ],
-
-    // ── Screen: The Perception Framework (Figma images 12-13) — fully static
-    perceptionFramework: {
-      intro: LESSON_PERCEPTION_FRAMEWORK_INTRO,
-      archetypes: LESSON_PERCEPTION_FRAMEWORK_ARCHETYPES,
-    },
-
-    // ── Screen: Moving Across Your Range (Figma images 13-14)
-    // Thematic synthesis — NOT a prompt-by-prompt walkthrough (that is archetypeNarrative)
-    movingAcrossYourRange: rangeRaw.trim(),
-
-    // ── Screen: How might this growth show up? (Figma image 16)
-    howMightThisGrowthShowUp: growthRaw.trim(),
+    // The "Your session insight" block — dominant statement + orientation lines.
+    sessionInsight,
+    dominantStatement,
+    orientationLine,
+    // Exact required closing sign-off (must not be altered).
+    signoff: SESSION_READ_SIGNOFF,
   };
 };
 
@@ -832,10 +706,10 @@ const GIR_FIXED_INTRO = `This portrait emerges from your own words. Over the cou
 // Step 1 — Score each transcript (batched single call, structured output)
 const GIR_SCORING_SYSTEM = `You are an expert in Visual Thinking Strategies (VTS) and aesthetic cognition.
 You will receive multiple transcripts labelled LESSON 1, LESSON 2 ... LESSON 10.
-For each lesson return ONLY the dominant mode — one of exactly:
+For each lesson return ONLY the dominant mode, one of exactly:
 Storyteller, Framer, Archivist, Artist, Integrator
 
-OUTPUT FORMAT — one line per lesson, nothing else:
+OUTPUT FORMAT, one line per lesson, nothing else:
 LESSON 1: <mode>
 LESSON 2: <mode>
 ...
@@ -843,104 +717,133 @@ LESSON 10: <mode>
 
 No explanation. No punctuation beyond the colon. No extra text.`;
 
-// Steps 3+4 — Verbatim quote extraction
-const GIR_QUOTES_SYSTEM = `You are an expert in Visual Thinking Strategies (VTS).
-Given a set of labelled transcripts and their mode scores, select ONE verbatim quote per mode that appeared.
+// Section IV (Evidence Deep-Dive) — one verbatim quote PER SESSION, each block
+// opening with an explicit tracking line naming that session's dominant
+// archetype (matching the Report Type 2 assignment rule), paired with its
+// reflective commentary in conditional language.
+const GIR_QUOTES_SYSTEM = `You build the Evidence Deep-Dive for a Growth in Range report.
+
+You will receive ten labelled transcripts, each already scored with its dominant mode. For EACH session that contains usable language, produce one block: an explicit tracking line naming that session's dominant archetype, then one verbatim quote drawn from that session, then a short reflective commentary.
 
 Rules:
-- VERBATIM ONLY — copy the exact words from the transcript, do not paraphrase or reconstruct
-- No em dashes (use commas or full stops instead)
-- Quote must demonstrate the named mode clearly
-- If a mode did not appear, do not include it
+- VERBATIM ONLY. Copy the exact words from that session's transcript. Do not paraphrase or reconstruct.
+- The quote must demonstrate that session's dominant mode.
+- The tracking line states the single dominant archetype that surfaced in that session.
+- The commentary is 2 to 3 sentences. It names the thinking move using stems such as "You're noticing", "You're constructing a narrative", "You're sensing", "You're raising the question", "You're integrating several ideas". It uses conditional language ("might suggest", "seems to", "could indicate", "appears to"). It mirrors cognition only, never the artwork's meaning, and never praises.
+- Do not label any block with the strings "VTS Commentary" or "Commentary".
+- If a session has no usable language, skip it.
 
-OUTPUT FORMAT — one block per mode, nothing else:
-MODE: <mode name>
-QUOTE: "<exact verbatim text from transcript>"`;
+OUTPUT FORMAT, EXACTLY as below. Use these literal marker tokens. Put each marker on its own line. Never write the marker tokens anywhere inside the quote or reflection text. Output nothing before the first marker or after the last block.
 
-// Step 4 — VTS commentary per quote
-const GIR_COMMENTARY_SYSTEM = `You are an expert in Visual Thinking Strategies (VTS).
-Write one short VTS commentary (2-3 sentences) for each quote provided.
+[[SESSION]] <session number>
+[[DOMINANT]] <archetype name>
+[[QUOTE]] <exact verbatim text from that session, no surrounding quotation marks>
+[[REFLECTION]] <2 to 3 sentence reflective commentary>
+[[END]]
 
-VTS PARAPHRASING RULES:
-1. NEVER praise or evaluate. Forbidden: "rare", "insightful", "brilliant", "impressive", "great observation", any compliment.
-2. NAME THE THINKING MOVE using metacognitive language:
-   Observing:    "You're noticing..." / "You're attending to..." / "You're pointing out..."
-   Interpreting: "You're constructing a narrative..." / "You're imagining this as..."
-   Reasoning:    "You're grounding your idea in what you see..." / "You're working backward..."
-   Feeling:      "You're sensing an emotional tone..." / "You're entering the image through empathy..."
-   Connecting:   "You're linking this to..." / "You're integrating several ideas..."
-   Wondering:    "You're raising the question..." / "You're exploring unknowns..."
-3. USE CONDITIONAL LANGUAGE: "might suggest", "seems to", "could indicate", "appears to"
-4. No em dashes — use commas or full stops.
+Repeat the five lines above for each session. The [[END]] line closes each block.`;
 
-OUTPUT FORMAT — one block per mode, matching the input order:
-MODE: <mode name>
-COMMENTARY: <2-3 sentence VTS commentary>`;
+// Section V — "Your Range" paragraphs + Emerging Perceptual Capacities, with
+// each described conceptual move paired to its parent archetype in parentheses.
+const GIR_RANGE_SYSTEM = `You write the Range Mapping section for a Growth in Range report.
 
-// Step 5 — "Your Range" paragraphs
-const GIR_RANGE_SYSTEM = `You write the "Your Range" section for a Growth in Range report.
-Write one paragraph per mode that appeared. Then write one plain sentence naming absent modes without judgment.
+First write one paragraph per mode that appeared, describing what that mode looked like in this person's responses. Then write an "Emerging Perceptual Capacities" paragraph. Then one plain sentence naming absent modes without judgment.
 
 Rules:
-- Second person ("you"), present/past tense as appropriate
-- Conditional observational language: "it seems", "appears to", "might suggest"
-- One paragraph per appeared mode — describe what that mode looks like in this person's responses
-- Do NOT rank the range. Two modes is not less developed than five.
+- Second person ("you"), present or past tense as appropriate.
+- Conditional observational language: "it seems", "appears to", "might suggest".
+- One paragraph per appeared mode.
+- In the Emerging Perceptual Capacities paragraph, every conceptual move you describe MUST be immediately followed by its parent archetype in parentheses, in this exact standardized form: (The Storyteller: Narrative Maker), (The Framer: Structure Seeker), (The Archivist: Context Builder), (The Artist: Emotional Explorer), (The Integrator: Reflective Synthesiser).
+- Do NOT rank the range. Two modes is not less developed than five. Range reflects perceptual accessibility, not human value.
 - One final sentence naming absent modes plainly: "The [X], [Y] and [Z] modes did not appear in this sequence."
-- No bullet points, no markdown, no praise
-- No em dashes
+- No bullet points, no markdown, no praise, no em dashes.
 
-OUTPUT FORMAT — one block per appeared mode, then the absent sentence:
-MODE: <mode name>
-PARAGRAPH: <paragraph text>
+OUTPUT FORMAT, EXACTLY as below using these literal marker tokens, each on its own line. Never write the marker tokens inside any paragraph text.
 
-ABSENT: <one sentence naming all absent modes>`;
+For the [[MODE]] line, use the bare archetype name ONLY, one of exactly: Storyteller, Framer, Archivist, Artist, Integrator. Do not add "The" and do not add the subtitle on the [[MODE]] line.
 
-// Step 6 — "How Might This Show Up?"
+[[MODE]] <one of: Storyteller, Framer, Archivist, Artist, Integrator>
+[[PARAGRAPH]] <paragraph text for that mode>
+[[ENDMODE]]
+
+Repeat the three lines above for each appeared mode. Then:
+
+[[CAPACITIES]] <Emerging Perceptual Capacities paragraph with parenthetical archetype mapping>
+[[ABSENT]] <one sentence naming all absent modes>`;
+
+// Section VI — "How Might This Show Up?"
 const GIR_HOW_SYSTEM = `You write the "How might this show up?" section for a Growth in Range report.
 One paragraph. Conditional voice. References the home base mode and at least one range mode.
-Describes how this cognitive pattern might manifest beyond the art room — in work, relationships, or daily life.
+Describes how this cognitive pattern might manifest beyond the art room, in work, relationships, or daily life.
 
 Rules:
-- Second person ("you"), present/future tense
-- Conditional language throughout: "might", "could", "it seems", "appears to"
-- Reference home base + at least one range mode by name
-- No bullet points, no markdown
-- No em dashes
-- No praise or evaluation
-- Output only the paragraph body — no heading`;
+- Second person ("you"), present or future tense.
+- Conditional language throughout: "might", "could", "it seems", "appears to".
+- Reference home base and at least one range mode by name.
+- No bullet points, no markdown, no em dashes, no praise or evaluation.
+- Output only the paragraph body, no heading.`;
 
 const analyzeGrowthInRange = async ({ lessons }) => {
   // lessons = [{ lesson_number: 1, transcript_text: "..." }, ...]
   if (!Array.isArray(lessons) || lessons.length === 0) {
     const AppError = require("../utils/app-error");
-    throw new AppError("No lesson transcripts found for the Growth in Range report", 400, "VALIDATION_ERROR");
+    throw new AppError("No session transcripts found for the Growth in Range report", 400, "VALIDATION_ERROR");
   }
 
   const anthropic = client();
   const validArchetypes = ["Storyteller", "Framer", "Archivist", "Artist", "Integrator"];
 
-  // ── Step 1: Score all 10 transcripts in one Claude call ────────────────────
-  const scoringInput = lessons
-    .sort((a, b) => a.lesson_number - b.lesson_number)
-    .map((l) => `LESSON ${l.lesson_number}:\n${l.transcript_text}`)
-    .join("\n\n---\n\n");
-
-  const rawScores = await callClaude(
+  // ── Input Safeguards (Section 5) — Rule A then Rule B across all transcripts
+  const guard = await checkInput(
     anthropic,
-    GIR_SCORING_SYSTEM,
-    `Score each transcript and return the dominant mode for each lesson:\n\n${scoringInput}`,
-    200,
+    lessons.map((l) => l.transcript_text || "").join(" "),
   );
+  if (!guard.ok) {
+    return { rejected: true, notice: guard.notice };
+  }
 
-  // Parse "LESSON N: Mode" lines
-  const modePerLesson = [];
-  for (const line of rawScores.split("\n")) {
-    const match = line.match(/LESSON\s+\d+:\s*(\w+)/i);
-    if (match) {
-      const mode = match[1].trim();
-      modePerLesson.push(validArchetypes.includes(mode) ? mode : "Framer"); // fallback
+  // ── Step 1: Determine the dominant mode per lesson ─────────────────────────
+  // Prefer the archetype already assigned by each lesson's own Session Read
+  // (passed in as precomputed_mode). This keeps the course report consistent
+  // with the per-lesson reports. Only lessons missing a precomputed mode (e.g.
+  // legacy data) are scored via a single AI call.
+  const ordered = [...lessons].sort((a, b) => a.lesson_number - b.lesson_number);
+  const modePerLesson = new Array(ordered.length).fill(null);
+
+  ordered.forEach((l, i) => {
+    if (validArchetypes.includes(l.precomputed_mode)) {
+      modePerLesson[i] = l.precomputed_mode;
     }
+  });
+
+  const unscored = ordered.filter((l, i) => modePerLesson[i] === null);
+  if (unscored.length > 0) {
+    const scoringInput = unscored
+      .map((l) => `LESSON ${l.lesson_number}:\n${l.transcript_text}`)
+      .join("\n\n---\n\n");
+
+    const rawScores = await callClaude(
+      anthropic,
+      GIR_SCORING_SYSTEM,
+      `Score each transcript and return the dominant mode for each lesson:\n\n${scoringInput}`,
+      200,
+    );
+
+    // Map "LESSON N: Mode" back to the correct position by lesson_number.
+    const scoredByNumber = {};
+    for (const line of rawScores.split("\n")) {
+      const match = line.match(/LESSON\s+(\d+):\s*(\w+)/i);
+      if (match) {
+        const num = Number(match[1]);
+        const mode = match[2].trim();
+        scoredByNumber[num] = validArchetypes.includes(mode) ? mode : "Framer";
+      }
+    }
+    ordered.forEach((l, i) => {
+      if (modePerLesson[i] === null) {
+        modePerLesson[i] = scoredByNumber[l.lesson_number] || "Framer";
+      }
+    });
   }
 
   // ── Step 2: Compute range in JS ────────────────────────────────────────────
@@ -954,107 +857,128 @@ const analyzeGrowthInRange = async ({ lessons }) => {
   const absentModes = validArchetypes.filter((m) => modeCounts[m] === 0);
   const appearedModes = [homeBase, ...rangeModes]; // home base first, then range
 
-  // Build combined transcript reference for Claude calls
-  const allTranscripts = lessons
-    .sort((a, b) => a.lesson_number - b.lesson_number)
-    .map((l) => `LESSON ${l.lesson_number} [Mode: ${modePerLesson[l.lesson_number - 1]}]:\n${l.transcript_text}`)
+  // Build combined transcript reference for Claude calls.
+  // modePerLesson is indexed by position in `ordered`, so use the same index.
+  const allTranscripts = ordered
+    .map((l, i) => `LESSON ${l.lesson_number} [Mode: ${modePerLesson[i]}]:\n${l.transcript_text}`)
     .join("\n\n---\n\n");
 
   // ── Steps 3–6: Run in parallel once home_base + modes are known ────────────
   const [quotesRaw, rangeParagraphsRaw, howShowUpRaw] = await Promise.all([
-    // Step 3: Pull verbatim quotes (one per appeared mode)
+    // Section IV: Evidence Deep-Dive — one quote per session with a tracking line
     callClaude(
       anthropic,
-      GIR_QUOTES_SYSTEM,
-      `Modes that appeared: ${appearedModes.join(", ")}\nHome base: ${homeBase}\n\nAll 10 lesson transcripts with mode scores:\n---\n${allTranscripts}\n---\n\nSelect ONE verbatim quote per appeared mode. Follow the output format exactly.`,
-      800,
+      withGlobalRules(GIR_QUOTES_SYSTEM),
+      `Modes that appeared: ${appearedModes.join(", ")}\nHome base: ${homeBase}\n\nAll 10 lesson transcripts with mode scores:\n---\n${allTranscripts}\n---\n\nProduce one block per session that contains usable language. Follow the output format exactly.`,
+      1400,
     ),
-    // Step 5: Write "Your Range" paragraphs
+    // Section V: Range Mapping — paragraphs + Emerging Perceptual Capacities
     callClaude(
       anthropic,
-      GIR_RANGE_SYSTEM,
-      `Home base: ${homeBase}\nRange modes: ${rangeModes.join(", ") || "none"}\nAbsent modes: ${absentModes.join(", ") || "none"}\n\nAll 10 lesson transcripts:\n---\n${allTranscripts}\n---\n\nWrite one paragraph per appeared mode (${appearedModes.join(", ")}), then the absent sentence.`,
-      1000,
+      withGlobalRules(GIR_RANGE_SYSTEM),
+      `Home base: ${homeBase}\nRange modes: ${rangeModes.join(", ") || "none"}\nAbsent modes: ${absentModes.join(", ") || "none"}\n\nAll 10 lesson transcripts:\n---\n${allTranscripts}\n---\n\nWrite one paragraph per appeared mode (${appearedModes.join(", ")}), then the Emerging Perceptual Capacities paragraph with parenthetical archetype mapping, then the absent sentence.`,
+      1400,
     ),
-    // Step 6: Write "How might this show up?"
+    // Section VI: How might this show up?
     callClaude(
       anthropic,
-      GIR_HOW_SYSTEM,
+      withGlobalRules(GIR_HOW_SYSTEM),
       `Home base: ${homeBase}\nRange modes: ${rangeModes.join(", ") || "none"}\n\nAll 10 lesson transcripts:\n---\n${allTranscripts}\n---\n\nWrite the "How might this show up?" paragraph.`,
       400,
     ),
   ]);
 
-  // Parse quotes: MODE: X\nQUOTE: "..."
-  const parsedQuotes = [];
-  const quoteBlocks = quotesRaw.split(/\nMODE:/i).filter((b) => b.trim());
-  for (const block of quoteBlocks) {
-    const modeMatch = block.match(/^[\s]*([A-Za-z]+)/);
-    const quoteMatch = block.match(/QUOTE:\s*[""]?(.+?)[""]?\s*$/ms);
-    if (modeMatch && quoteMatch) {
-      parsedQuotes.push({
-        mode: modeMatch[1].trim(),
-        quote: quoteMatch[1].trim().replace(/^[""\u201c]|[""\u201d]$/g, ""),
+  // Parse Section IV evidence using the unambiguous [[MARKER]] tokens the prompt
+  // enforces. Each field is captured between its marker and the NEXT marker (or
+  // [[END]]), so a reflection that contains the word "session" can never be
+  // mistaken for a new block. Markers are stripped from the captured text.
+  const evidence = [];
+  // One block per [[SESSION]] ... up to [[END]] (or the next [[SESSION]]).
+  const blockRe = /\[\[SESSION\]\]([\s\S]*?)(?:\[\[END\]\]|(?=\[\[SESSION\]\])|$)/gi;
+  const field = (block, tag) => {
+    // Capture from [[TAG]] up to the next [[ marker.
+    const m = block.match(new RegExp(`\\[\\[${tag}\\]\\]\\s*([\\s\\S]*?)\\s*(?=\\[\\[|$)`, "i"));
+    return m ? m[1].trim() : "";
+  };
+  let bm;
+  while ((bm = blockRe.exec(quotesRaw)) !== null) {
+    const block = bm[1];
+    const sessionNum = (block.match(/^\s*(\d+)/) || [])[1];
+    const dominant = field(block, "DOMINANT").match(/[A-Za-z]+/)?.[0] || null;
+    const quote = field(block, "QUOTE").replace(/^["'“”]+|["'“”]+$/g, "").trim();
+    const reflection = field(block, "REFLECTION");
+    if (quote) {
+      evidence.push({
+        session_number: sessionNum ? Number(sessionNum) : null,
+        dominant_archetype: dominant,
+        quote,
+        reflection,
       });
     }
   }
 
-  // Step 4: Write VTS commentary for each parsed quote (sequential — depends on step 3)
-  const quotesForCommentary = parsedQuotes
-    .map((q) => `MODE: ${q.mode}\nQUOTE: "${q.quote}"`)
-    .join("\n\n");
-
-  const commentaryRaw = await callClaude(
-    anthropic,
-    GIR_COMMENTARY_SYSTEM,
-    `Write VTS commentary for each quote below. Follow the output format exactly.\n\n${quotesForCommentary}`,
-    600,
-  );
-
-  // Parse commentary: MODE: X\nCOMMENTARY: ...
-  const commentaryMap = {};
-  const commentaryBlocks = commentaryRaw.split(/\nMODE:/i).filter((b) => b.trim());
-  for (const block of commentaryBlocks) {
-    const modeMatch = block.match(/^[\s]*([A-Za-z]+)/);
-    const commentaryMatch = block.match(/COMMENTARY:\s*(.+)/s);
-    if (modeMatch && commentaryMatch) {
-      commentaryMap[modeMatch[1].trim()] = commentaryMatch[1].trim();
+  // Backward-compatible flat list of quote + meaning (one per appeared mode,
+  // de-duplicated by dominant archetype) for the PDF builder and older clients.
+  const seenModes = new Set();
+  const quotesAndMeanings = [];
+  for (const e of evidence) {
+    const mode = e.dominant_archetype || "";
+    if (mode && !seenModes.has(mode)) {
+      seenModes.add(mode);
+      quotesAndMeanings.push({ mode, quote: e.quote, vts_commentary: e.reflection });
     }
   }
 
-  // Merge quotes + commentary
-  const quotesAndMeanings = parsedQuotes.map((q) => ({
-    mode: q.mode,
-    quote: q.quote,
-    vts_commentary: commentaryMap[q.mode] ?? "",
-  }));
-
-  // Parse range paragraphs: MODE: X\nPARAGRAPH: ...\n\nABSENT: ...
+  // Parse Section V range: MODE/PARAGRAPH blocks, plus CAPACITIES and ABSENT.
   const yourRange = [];
   let absentSentence = absentModes.length > 0
     ? `The ${absentModes.join(", ")} ${absentModes.length === 1 ? "mode" : "modes"} did not appear in this sequence.`
     : "All five modes appeared across these ten transcripts.";
+  let emergingCapacities = "";
 
-  const rangeBlocks = rangeParagraphsRaw.split(/\nMODE:/i).filter((b) => b.trim());
-  for (const block of rangeBlocks) {
-    if (/^ABSENT:/i.test(block.trim())) {
-      const absentMatch = block.match(/^ABSENT:\s*(.+)/is);
-      if (absentMatch) absentSentence = absentMatch[1].trim();
-      continue;
-    }
-    const modeMatch = block.match(/^[\s]*([A-Za-z]+)/);
-    const paraMatch = block.match(/PARAGRAPH:\s*(.+)/s);
-    if (modeMatch && paraMatch) {
-      yourRange.push({
-        mode: modeMatch[1].trim(),
-        paragraph: paraMatch[1].trim(),
-      });
+  // Normalise any model phrasing ("The Artist", "Artist:", "the artist mode")
+  // to the canonical archetype name, or null if none matches.
+  const normalizeMode = (raw) => {
+    if (!raw) return null;
+    const lower = raw.toLowerCase();
+    return validArchetypes.find((m) => lower.includes(m.toLowerCase())) || null;
+  };
+
+  // Parse Section V using [[MODE]] / [[PARAGRAPH]] / [[ENDMODE]] markers, plus
+  // [[CAPACITIES]] and [[ABSENT]]. Field text is captured up to the next [[ marker.
+  const rangeField = (block, tag) => {
+    const m = block.match(new RegExp(`\\[\\[${tag}\\]\\]\\s*([\\s\\S]*?)\\s*(?=\\[\\[|$)`, "i"));
+    return m ? m[1].trim() : "";
+  };
+  const modeBlockRe = /\[\[MODE\]\]([\s\S]*?)(?:\[\[ENDMODE\]\]|(?=\[\[MODE\]\])|(?=\[\[CAPACITIES\]\])|(?=\[\[ABSENT\]\])|$)/gi;
+  let mb;
+  while ((mb = modeBlockRe.exec(rangeParagraphsRaw)) !== null) {
+    const block = mb[1];
+    const modeName = normalizeMode((block.match(/^\s*(.+)/) || [])[1]);
+    const paragraph = rangeField(block, "PARAGRAPH");
+    if (modeName && paragraph) {
+      yourRange.push({ mode: modeName, paragraph });
     }
   }
 
-  // Also check for ABSENT: at the top level (some parsers emit it outside a MODE block)
-  const absentTopMatch = rangeParagraphsRaw.match(/\nABSENT:\s*(.+)/i);
-  if (absentTopMatch) absentSentence = absentTopMatch[1].trim();
+  const capMatch = rangeParagraphsRaw.match(/\[\[CAPACITIES\]\]\s*([\s\S]*?)\s*(?=\[\[|$)/i);
+  if (capMatch) emergingCapacities = capMatch[1].trim();
+  const absMatch = rangeParagraphsRaw.match(/\[\[ABSENT\]\]\s*([\s\S]*?)\s*(?=\[\[|$)/i);
+  if (absMatch && absMatch[1].trim()) absentSentence = absMatch[1].trim();
+
+  // Section III overview ("How You See") — a computed summary narrative naming
+  // which modes appeared, the home base, and which did not appear.
+  const appearedCount = appearedModes.length;
+  const numberWords = ["zero", "one", "two", "three", "four", "five"];
+  const rangeList =
+    rangeModes.length > 0
+      ? `Alongside it, the ${rangeModes.join(", the ")} each appeared at least once across the sequence, showing up in response to specific images and prompts that seemed to call them forward. `
+      : "";
+  const absentNarrative =
+    absentModes.length > 0
+      ? `The ${absentModes.join(", the ")} did not appear across these ten transcripts.`
+      : "All five perceptual modes appeared at least once across the sequence.";
+  const overview = `Across ten encounters with progressively more challenging images, ${numberWords[appearedCount] || appearedCount} of the five perceptual modes appeared in your language. Your home base appears to be the ${homeBase}: this is the mode you returned to most consistently, and the one that seems to anchor how you first enter an image. ${rangeList}${absentNarrative}`;
 
   return {
     home_base: homeBase,
@@ -1063,10 +987,17 @@ const analyzeGrowthInRange = async ({ lessons }) => {
     mode_counts: modeCounts,
     report: {
       fixed_intro: GIR_FIXED_INTRO,
+      // Section III: summary narrative of which modes appeared.
+      overview,
       how_you_see: ARCHETYPE_DESCRIPTIONS[homeBase], // full description of the home base archetype
+      // Section IV: per-session evidence, each with a dominant-archetype tracking line.
+      evidence,
       quotes_and_meanings: quotesAndMeanings,
+      // Section V: range mapping.
       your_range: yourRange,
+      emerging_perceptual_capacities: emergingCapacities,
       absent_modes_sentence: absentSentence,
+      // Section VI.
       how_might_this_show_up: howShowUpRaw.trim(),
       home_base_archetype_description: ARCHETYPE_DESCRIPTIONS[homeBase],
     },

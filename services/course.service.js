@@ -244,7 +244,7 @@ const getLessonsByCourse = async (courseId) => {
 
 const updateLesson = async (lessonId, data) => {
   const lesson = await CourseLesson.findByPk(lessonId);
-  if (!lesson) throw new AppError("Lesson not found", 404, "NOT_FOUND");
+  if (!lesson) throw new AppError("Session not found", 404, "NOT_FOUND");
 
   const allowed = ["title", "sort_order", "is_active"];
   const updates = {};
@@ -260,14 +260,14 @@ const updateLesson = async (lessonId, data) => {
 
 const createLessonContent = async (lessonId, data) => {
   const lesson = await CourseLesson.findByPk(lessonId);
-  if (!lesson) throw new AppError("Lesson not found", 404, "NOT_FOUND");
+  if (!lesson) throw new AppError("Session not found", 404, "NOT_FOUND");
 
   const existing = await LessonContent.findOne({
     where: { course_lesson_id: lessonId },
   });
   if (existing)
     throw new AppError(
-      "Lesson content already exists for this lesson. Use update instead.",
+      "Session content already exists for this session. Use update instead.",
       409,
       "CONFLICT",
     );
@@ -311,7 +311,7 @@ const getLessonContent = async (lessonId, userId) => {
     UserCourseProgress.findAll({ where: { user_id: userId } }),
   ]);
 
-  if (!lesson) throw new AppError("Lesson not found", 404, "NOT_FOUND");
+  if (!lesson) throw new AppError("Session not found", 404, "NOT_FOUND");
 
   const courseId = lesson.course_id;
   const course = allCourses.find((c) => c.id === courseId);
@@ -360,7 +360,7 @@ const getLessonContent = async (lessonId, userId) => {
     where: { course_lesson_id: lessonId },
   });
   if (!content)
-    throw new AppError("Lesson content not found", 404, "NOT_FOUND");
+    throw new AppError("Session content not found", 404, "NOT_FOUND");
 
   const { image_s3_key, ...plain } = content.toJSON();
   plain.image_url = image_s3_key ? await getPresignedUrl(image_s3_key) : null;
@@ -373,7 +373,7 @@ const updateLessonContent = async (lessonId, data) => {
     where: { course_lesson_id: lessonId },
   });
   if (!content)
-    throw new AppError("Lesson content not found", 404, "NOT_FOUND");
+    throw new AppError("Session content not found", 404, "NOT_FOUND");
 
   const allowed = [
     "artwork_title",
@@ -411,7 +411,7 @@ const startLesson = async (userId, courseId, lessonId) => {
   const course = allCourses.find((c) => c.id === Number(courseId));
   if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
   if (!lesson)
-    throw new AppError("Lesson not found in this course", 404, "NOT_FOUND");
+    throw new AppError("Session not found in this course", 404, "NOT_FOUND");
 
   // ── Cross-course lock ────────────────────────────────────────────────────────
   // Build the user-facing course order: home base first, then rest by sort_order.
@@ -536,12 +536,12 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
   // 1. Load + validate attempt + fetch user email and lesson title in parallel
   const [attempt, user] = await Promise.all([
     UserLessonAttempt.findOne({ where: { id: attemptId, user_id: userId } }),
-    User.findByPk(userId, { attributes: ["id", "email"] }),
+    User.findByPk(userId, { attributes: ["id", "email", "name"] }),
   ]);
   if (!attempt)
-    throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
+    throw new AppError("Session attempt not found", 404, "NOT_FOUND");
   if (attempt.status === "completed")
-    throw new AppError("Lesson already completed", 409, "CONFLICT");
+    throw new AppError("Session already completed", 409, "CONFLICT");
 
   const lessonId = attempt.course_lesson_id;
 
@@ -635,54 +635,61 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     ),
   );
 
-  // 3. Run lesson archetype analysis — passes all 3 transcripts separately
+  // 3. Run lesson Session Read analysis — passes all 3 transcripts separately
   const analysisResult = await analyzeLessonArchetype({ transcripts });
 
-  // 4. Upload JSON report + generate PDF in parallel
-  //    PDF generation reuses the existing onboarding PDF layout for now
+  // 3b. Input Safeguard (Artful Method Section 5): if the transcript is missing,
+  //     too short, or out of scope, the report protocol is suspended. The attempt
+  //     is left un-completed so the participant can retry, and the exact notice
+  //     is returned for the client to surface verbatim.
+  if (analysisResult.rejected) {
+    return {
+      attempt_id: attempt.id,
+      status: "rejected",
+      rejected: true,
+      notice_title: analysisResult.notice.notice_title,
+      notice_message: analysisResult.notice.notice_message,
+    };
+  }
+
+  // 4. Upload JSON report + generate PDF in parallel.
+  //    The Session Read (Report Type 2) is intentionally lightweight: dominant
+  //    archetype + a short session insight, ending with the fixed sign-off. It
+  //    excludes quotes, deep analysis, expansion prompts, and commentary blocks.
   const jsonKey = `courses/reports/json/${randomUUID()}.json`;
   const jsonStr = JSON.stringify(analysisResult);
 
-  // Build the perception framework as a readable string for the PDF
-  const perceptionFrameworkBody = [
-    analysisResult.perceptionFramework.intro,
-    "",
-    ...analysisResult.perceptionFramework.archetypes.map(
-      (a) => `${a.name} · ${a.subtitle}\n${a.description}`,
-    ),
-  ].join("\n\n");
-
-  // Cover archetype shows primary + secondary (e.g. "The Framer & The Artist")
   const pdfArchetype = {
-    name: `${analysisResult.archetype.name} & ${analysisResult.secondaryArchetype.name}`,
-    subtitle: `${analysisResult.archetype.subtitle} · ${analysisResult.secondaryArchetype.subtitle}`,
+    name: analysisResult.archetype.name,
+    subtitle: analysisResult.archetype.subtitle,
   };
+
+  // Cover headers (Report Type 2): Session Title + Artwork Explored.
+  const [coverLesson, coverContent] = await Promise.all([
+    CourseLesson.findByPk(lessonId, { attributes: ["title"] }),
+    LessonContent.findOne({
+      where: { course_lesson_id: lessonId },
+      attributes: ["artwork_title"],
+    }),
+  ]);
+  const coverMeta = [
+    coverLesson?.title ? `Session: ${coverLesson.title}` : null,
+    coverContent?.artwork_title ? `Artwork Explored: ${coverContent.artwork_title}` : null,
+  ].filter(Boolean);
 
   const [pdfBuffer] = await Promise.all([
     generateReportPdf({
       archetype: pdfArchetype,
+      participant: { name: user?.name },
+      meta: coverMeta,
       teaserCards: [],
-      quotesAndMeanings: analysisResult.promptInsights.flatMap((p) => p.quotes),
+      quotesAndMeanings: [],
       report: {
-        intro: analysisResult.intro,
+        intro: "",
         sections: [
-          ...analysisResult.promptInsights.map((p) => ({
-            heading: `What You Said · What It Reveals · Prompt ${p.prompt_number}`,
-            body: p.quotes
-              .map((q) => `"${q.quote}"\n${q.meaning}`)
-              .join("\n\n"),
-          })),
           {
-            heading: "The Perception Framework",
-            body: perceptionFrameworkBody,
-          },
-          {
-            heading: "Moving Across Your Range",
-            body: analysisResult.movingAcrossYourRange,
-          },
-          {
-            heading: "How might this growth show up?",
-            body: analysisResult.howMightThisGrowthShowUp,
+            heading: "Your session insight",
+            body: `${analysisResult.sessionInsight}\n\n${analysisResult.signoff}`,
           },
         ],
       },
@@ -731,7 +738,7 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     sendLessonReportEmail({
       userId,
       email: user.email,
-      lessonTitle: lesson?.title ?? `Lesson ${lesson?.sort_order ?? ""}`,
+      lessonTitle: lesson?.title ?? `Session ${lesson?.sort_order ?? ""}`,
       lessonNumber: lesson?.sort_order ?? "",
       pdfBuffer,
     });
@@ -747,9 +754,9 @@ const getLessonReport = async (attemptId, userId) => {
     where: { id: attemptId, user_id: userId },
   });
   if (!attempt)
-    throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
+    throw new AppError("Session attempt not found", 404, "NOT_FOUND");
   if (attempt.status !== "completed")
-    throw new AppError("Lesson not yet completed", 400, "NOT_COMPLETED");
+    throw new AppError("Session not yet completed", 400, "NOT_COMPLETED");
   if (!attempt.report_json && !attempt.report_json_s3_key)
     throw new AppError("Report not available", 404, "NOT_FOUND");
 
@@ -800,9 +807,9 @@ const getLessonReportPdf = async (attemptId, userId) => {
     where: { id: attemptId, user_id: userId },
   });
   if (!attempt)
-    throw new AppError("Lesson attempt not found", 404, "NOT_FOUND");
+    throw new AppError("Session attempt not found", 404, "NOT_FOUND");
   if (attempt.status !== "completed")
-    throw new AppError("Lesson not yet completed", 400, "NOT_COMPLETED");
+    throw new AppError("Session not yet completed", 400, "NOT_COMPLETED");
   if (!attempt.report_s3_key)
     throw new AppError("PDF report not available", 404, "NOT_FOUND");
 
@@ -833,7 +840,7 @@ const getCourseReport = async (courseId, userId) => {
     UserCourseProgress.findOne({
       where: { user_id: userId, course_id: courseId },
     }),
-    User.findByPk(userId, { attributes: ["id", "email"] }),
+    User.findByPk(userId, { attributes: ["id", "email", "name"] }),
   ]);
 
   if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
@@ -866,7 +873,8 @@ const getCourseReport = async (courseId, userId) => {
     const pdf_url = progress.course_report_pdf_s3_key
       ? await getPresignedUrl(progress.course_report_pdf_s3_key)
       : null;
-    return { report, pdf_url };
+     console.log(user); 
+    return { report, pdf_url, prepared_for: user?.name ?? null };
   }
 
   // 3. Fetch all completed attempts for this course
@@ -889,7 +897,11 @@ const getCourseReport = async (courseId, userId) => {
     ),
   );
 
-  // 5. Build lesson transcripts — join 3 prompts per lesson with separator
+  // 5. Build lesson transcripts — join 3 prompts per lesson with separator.
+  //    Each lesson already has a dominant archetype stored from its own Session
+  //    Read (report_json.archetype.name). We pass that through as precomputed_mode
+  //    so the GiR home base agrees with the per-lesson reports instead of being
+  //    re-scored with a different prompt.
   const lessons = attempts.map((attempt, idx) => {
     const responses = allResponses[idx] || [];
     const transcript = responses
@@ -897,35 +909,66 @@ const getCourseReport = async (courseId, userId) => {
       .sort((a, b) => a.prompt_number - b.prompt_number)
       .map((r) => r.transcript_text)
       .join("\n\n---\n\n");
-    return { lesson_number: idx + 1, transcript_text: transcript };
+    return {
+      lesson_number: idx + 1,
+      transcript_text: transcript,
+      precomputed_mode: attempt.report_json?.archetype?.name ?? null,
+    };
   });
 
   // 6. Run GiR pipeline
   const girResult = await analyzeGrowthInRange({ lessons });
 
-  // 7. Store JSON + generate PDF in parallel
+  // 6b. Input Safeguard (Artful Method Section 5): suspend the report and return
+  //     the exact notice if the combined transcripts are missing or out of scope.
+  if (girResult.rejected) {
+    return {
+      rejected: true,
+      notice_title: girResult.notice.notice_title,
+      notice_message: girResult.notice.notice_message,
+    };
+  }
+
+  // 7. Store JSON + generate PDF in parallel.
+  //    Growth in Range (Report Type 3) sections: II Fixed Intro, III Overview,
+  //    IV Evidence Deep-Dive (per-session tracking line + quote + reflection),
+  //    V Range Mapping (per-mode + Emerging Perceptual Capacities + absent),
+  //    VI How Might This Show Up.
   const jsonKey = `courses/reports/gir/json/${randomUUID()}.json`;
   const jsonStr = JSON.stringify(girResult);
+
+  // Section IV: each session block opens with its dominant-archetype tracking line.
+  const evidenceSections = (girResult.report.evidence || []).map((e) => ({
+    heading: `Session ${e.session_number ?? ""}: Dominant Archetype: ${e.dominant_archetype ?? ""}`.trim(),
+    body: `"${e.quote}"\n\n${e.reflection}`,
+  }));
 
   const [pdfBuffer] = await Promise.all([
     generateReportPdf({
       archetype: {
-        name: `Growth in Range — ${girResult.home_base}`,
+        name: `Growth in Range: ${girResult.home_base}`,
         subtitle: `Home base: ${girResult.home_base} · Range: ${girResult.range_modes.join(", ") || "none"}`,
       },
+      participant: { name: user?.name },
       teaserCards: [],
-      quotesAndMeanings: girResult.report.quotes_and_meanings.map((q) => ({
-        quote: q.quote,
-        meaning: q.vts_commentary,
-      })),
+      quotesAndMeanings: [],
       report: {
         intro: girResult.report.fixed_intro,
         sections: [
-          { heading: "How You See", body: girResult.report.how_you_see },
+          { heading: "How You See", body: girResult.report.overview },
+          ...evidenceSections,
           ...girResult.report.your_range.map((r) => ({
-            heading: `Your Range — ${r.mode}`,
+            heading: `Your Range: ${r.mode}`,
             body: r.paragraph,
           })),
+          ...(girResult.report.emerging_perceptual_capacities
+            ? [
+                {
+                  heading: "Emerging Perceptual Capacities",
+                  body: girResult.report.emerging_perceptual_capacities,
+                },
+              ]
+            : []),
           {
             heading: "Absent Modes",
             body: girResult.report.absent_modes_sentence,
@@ -969,7 +1012,7 @@ const getCourseReport = async (courseId, userId) => {
     });
   }
 
-  return { report: girResult, pdf_url };
+  return { report: girResult, pdf_url, prepared_for: user?.name ?? null };
 };
 
 const getCourseReportPdf = async (courseId, userId) => {
@@ -982,7 +1025,7 @@ const getCourseReportPdf = async (courseId, userId) => {
     throw new AppError("Course not yet completed", 400, "NOT_COMPLETED");
   if (!progress.course_report_pdf_s3_key)
     throw new AppError(
-      "Course report PDF not yet generated — call GET /report first",
+      "Course report PDF not yet generated. Call GET /report first",
       404,
       "NOT_FOUND",
     );

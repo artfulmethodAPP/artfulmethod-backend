@@ -1,419 +1,488 @@
 "use strict";
 
+const path = require("path");
 const PDFDocument = require("pdfkit");
 const { randomUUID } = require("crypto");
 const { PutObjectCommand } = require("@aws-sdk/client-s3");
 const s3 = require("../config/s3.config");
 const { getPresignedUrl } = require("./s3.service");
 
-// ─── Colour palette ──────────────────────────────────────────────────────────
+// ─── Palette: simple white background, black text ────────────────────────────
 const COLOURS = {
   black: "#1A1A1A",
+  text: "#333333",
+  muted: "#8A8A8A",
+  hairline: "#E8E8E8",
+  accent: "#C0894B", // warm neutral accent rule under headings
+  quoteBar: "#D9C3A6", // soft accent for the quote left border
   white: "#FFFFFF",
-  gold: "#C9A84C",
-  goldLight: "#E8D5A3",
-  darkBg: "#12100E",
-  sectionBg: "#1E1C1A",
-  mutedText: "#9E9E9E",
-  divider: "#333333",
 };
 
 // ─── Layout constants ────────────────────────────────────────────────────────
-const MARGIN = 50;
+const MARGIN = 56;
 const PAGE_WIDTH = 595.28; // A4
+const PAGE_HEIGHT = 841.89; // A4
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+const BOTTOM_LIMIT = PAGE_HEIGHT - MARGIN;
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const addPageBackground = (doc) => {
-  doc.save();
-  doc.rect(0, 0, PAGE_WIDTH, doc.page.height).fill(COLOURS.darkBg);
-  doc.restore();
-  // Reset default text colour to white so no text ever renders black-on-black
-  doc.fillColor(COLOURS.white).strokeColor(COLOURS.white);
-  doc.y = MARGIN;
+// ─── Assets ──────────────────────────────────────────────────────────────────
+const LOGO_PATH = path.join(__dirname, "..", "assets", "am-logo.jpg");
+const FONTS = {
+  regular: path.join(__dirname, "..", "fonts", "Montserrat-Regular.ttf"),
+  medium: path.join(__dirname, "..", "fonts", "Montserrat-Medium.ttf"),
+  semibold: path.join(__dirname, "..", "fonts", "Montserrat-SemiBold.ttf"),
+  bold: path.join(__dirname, "..", "fonts", "Montserrat-Bold.ttf"),
 };
 
-const drawDivider = (doc, yOffset = 0) => {
-  const y = doc.y + yOffset;
+// Font aliases registered on each document.
+const F = { regular: "M-Regular", medium: "M-Medium", semibold: "M-SemiBold", bold: "M-Bold" };
+
+const registerFonts = (doc) => {
+  doc.registerFont(F.regular, FONTS.regular);
+  doc.registerFont(F.medium, FONTS.medium);
+  doc.registerFont(F.semibold, FONTS.semibold);
+  doc.registerFont(F.bold, FONTS.bold);
+};
+
+// White background on every page.
+const paintBackground = (doc) => {
+  doc.save();
+  doc.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT).fill(COLOURS.white);
+  doc.restore();
+  doc.fillColor(COLOURS.text);
+};
+
+// Ensure there is room for `needed` points; add a page only when the current one
+// is genuinely full. Never pre-emptively creates trailing blank pages.
+const ensureSpace = (doc, needed) => {
+  if (doc.y + needed > BOTTOM_LIMIT) {
+    doc.addPage();
+  }
+};
+
+// Centered logo. Returns the y position just below it.
+const drawLogo = (doc, y, width = 84) => {
+  try {
+    const x = (PAGE_WIDTH - width) / 2;
+    // Logo is 263x366 (portrait); keep aspect ratio by fitting width.
+    doc.image(LOGO_PATH, x, y, { width });
+    // Approximate rendered height from the known aspect ratio.
+    const height = width * (366 / 263);
+    return y + height;
+  } catch (e) {
+    // If the logo asset is missing, fall back to a wordmark so no blank gap.
+    doc
+      .font(F.bold)
+      .fontSize(20)
+      .fillColor(COLOURS.black)
+      .text("ARTFUL METHOD", MARGIN, y, {
+        width: CONTENT_WIDTH,
+        align: "center",
+        characterSpacing: 2,
+      });
+    return y + 28;
+  }
+};
+
+const hairline = (doc, y) => {
   doc
     .moveTo(MARGIN, y)
     .lineTo(PAGE_WIDTH - MARGIN, y)
-    .strokeColor(COLOURS.divider)
-    .lineWidth(0.5)
-    .stroke();
-  doc.moveDown(0.5);
-};
-
-const drawGoldAccent = (doc, x, y, width = 30) => {
-  doc
-    .moveTo(x, y)
-    .lineTo(x + width, y)
-    .strokeColor(COLOURS.gold)
-    .lineWidth(2)
+    .strokeColor(COLOURS.hairline)
+    .lineWidth(1)
     .stroke();
 };
 
 // ─── Cover page ───────────────────────────────────────────────────────────────
+const drawCover = (doc, archetype, participant, meta) => {
+  doc.addPage();
 
-const drawCoverPage = (doc, archetype) => {
-  // Top decorative line
-  doc
-    .moveTo(MARGIN, 80)
-    .lineTo(PAGE_WIDTH - MARGIN, 80)
-    .strokeColor(COLOURS.gold)
-    .lineWidth(1)
-    .stroke();
+  const logoBottom = drawLogo(doc, 110, 96);
 
-  // App label
-  doc
-    .font("Helvetica")
-    .fontSize(9)
-    .fillColor(COLOURS.mutedText)
-    .text("ARTFUL METHOD", MARGIN, 95, { characterSpacing: 3 });
-
-  // Main title
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(34)
-    .fillColor(COLOURS.white)
-    .text("Aesthetic Archetype", MARGIN, 160, { lineGap: 4 })
-    .text("Portrait Report", MARGIN);
-
-  // Gold underline beneath title
-  drawGoldAccent(doc, MARGIN, doc.y + 8, 80);
-  doc.moveDown(2.5);
-
-  // Archetype badge block
-  const badgeY = doc.y;
-  doc
-    .rect(MARGIN, badgeY, CONTENT_WIDTH, 80)
-    .fillColor(COLOURS.sectionBg)
-    .fill();
+  let y = logoBottom + 36;
 
   doc
-    .font("Helvetica")
+    .font(F.medium)
     .fontSize(10)
-    .fillColor(COLOURS.gold)
-    .text("YOUR PRIMARY ARCHETYPE", MARGIN + 20, badgeY + 18, {
-      characterSpacing: 2,
-    });
-
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(22)
-    .fillColor(COLOURS.white)
-    .text(`${archetype.name}  ·  ${archetype.subtitle}`, MARGIN + 20, badgeY + 36);
-
-  doc.y = badgeY + 80 + 30;
-
-  // Intro label
-  doc
-    .font("Helvetica")
-    .fontSize(9)
-    .fillColor(COLOURS.gold)
-    .text("ABOUT THIS REPORT", MARGIN, doc.y, { characterSpacing: 2 });
-
-  doc.moveDown(0.6);
-
-  doc
-    .font("Helvetica")
-    .fontSize(10.5)
-    .fillColor(COLOURS.goldLight)
-    .text(
-      "This portrait emerges from your own words, recorded and analysed during a live art-viewing session.",
-      MARGIN,
-      doc.y,
-      { width: CONTENT_WIDTH, lineGap: 5 },
-    );
-
-  // Bottom decorative line
-  doc
-    .moveTo(MARGIN, doc.page.height - 60)
-    .lineTo(PAGE_WIDTH - MARGIN, doc.page.height - 60)
-    .strokeColor(COLOURS.gold)
-    .lineWidth(1)
-    .stroke();
-};
-
-// ─── Teaser cards page ────────────────────────────────────────────────────────
-
-const drawTeaserPage = (doc, teaserCards) => {
-  doc.addPage();
-
-  doc
-    .font("Helvetica")
-    .fontSize(9)
-    .fillColor(COLOURS.gold)
-    .text("YOUR PERCEPTUAL SIGNATURE", MARGIN, MARGIN + 10, {
-      characterSpacing: 2,
-    });
-
-  doc.moveDown(0.8);
-  drawGoldAccent(doc, MARGIN, doc.y, 40);
-  doc.moveDown(1.2);
-
-  teaserCards.forEach((line, idx) => {
-    const cardY = doc.y;
-    const cardHeight = 58;
-
-    // Alternating card backgrounds for visual rhythm
-    const bgColour = idx % 2 === 0 ? COLOURS.sectionBg : "#171513";
-    doc.rect(MARGIN, cardY, CONTENT_WIDTH, cardHeight).fillColor(bgColour).fill();
-
-    // Index dot
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(9)
-      .fillColor(COLOURS.gold)
-      .text(String(idx + 1).padStart(2, "0"), MARGIN + 14, cardY + 14);
-
-    // Line text
-    doc
-      .font("Helvetica")
-      .fontSize(12)
-      .fillColor(COLOURS.white)
-      .text(line, MARGIN + 40, cardY + 14, {
-        width: CONTENT_WIDTH - 60,
-        lineGap: 4,
-      });
-
-    doc.y = cardY + cardHeight + 10;
-  });
-};
-
-// ─── Quotes & meanings page(s) ───────────────────────────────────────────────
-
-const drawQuotesPage = (doc, quotesAndMeanings) => {
-  doc.addPage();
-
-  doc
-    .font("Helvetica")
-    .fontSize(9)
-    .fillColor(COLOURS.gold)
-    .text("WHAT YOU SAID AND WHAT IT REVEALS", MARGIN, MARGIN + 10, {
-      characterSpacing: 2,
-    });
-
-  doc.moveDown(0.8);
-  drawGoldAccent(doc, MARGIN, doc.y, 40);
-  doc.moveDown(1.4);
-
-  quotesAndMeanings.forEach((item, idx) => {
-    // Check remaining space — start a new page if needed
-    if (doc.y > doc.page.height - 160) {
-      doc.addPage();
-    }
-
-    const blockStartY = doc.y;
-
-    // Quote number label
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(8)
-      .fillColor(COLOURS.gold)
-      .text(`QUOTE ${idx + 1}`, MARGIN, blockStartY, { characterSpacing: 2 });
-
-    doc.moveDown(0.4);
-
-    // Gold left bar
-    const quoteTextY = doc.y;
-    doc
-      .moveTo(MARGIN, quoteTextY)
-      .lineTo(MARGIN, quoteTextY + 40)
-      .strokeColor(COLOURS.gold)
-      .lineWidth(2)
-      .stroke();
-
-    // Quote text
-    doc
-      .font("Helvetica-Oblique")
-      .fontSize(13)
-      .fillColor(COLOURS.white)
-      .text(`"${item.quote}"`, MARGIN + 14, quoteTextY, {
-        width: CONTENT_WIDTH - 14,
-        lineGap: 5,
-      });
-
-    doc.moveDown(0.7);
-
-    // Meaning label
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(8)
-      .fillColor(COLOURS.mutedText)
-      .text("MEANING", MARGIN, doc.y, { characterSpacing: 1.5 });
-
-    doc.moveDown(0.35);
-
-    // Meaning body
-    doc
-      .font("Helvetica")
-      .fontSize(10)
-      .fillColor(COLOURS.goldLight)
-      .text(item.meaning, MARGIN, doc.y, {
-        width: CONTENT_WIDTH,
-        lineGap: 4,
-      });
-
-    doc.moveDown(1.2);
-    drawDivider(doc, 2);
-    doc.moveDown(0.8);
-  });
-};
-
-// ─── Full report section page(s) ─────────────────────────────────────────────
-
-const drawReportPages = (doc, report) => {
-  // Intro page
-  doc.addPage();
-
-  doc
-    .font("Helvetica")
-    .fontSize(9)
-    .fillColor(COLOURS.gold)
-    .text("YOUR FULL PORTRAIT", MARGIN, MARGIN + 10, { characterSpacing: 2 });
-
-  doc.moveDown(0.8);
-  drawGoldAccent(doc, MARGIN, doc.y, 40);
-  doc.moveDown(1.2);
-
-  doc
-    .font("Helvetica")
-    .fontSize(10.5)
-    .fillColor(COLOURS.goldLight)
-    .text(report.intro, MARGIN, doc.y, { width: CONTENT_WIDTH, lineGap: 6 });
-
-  doc.moveDown(1.5);
-
-  // Sections
-  report.sections.forEach((section) => {
-    // Page break guard — leave at least 100 pt for heading + first line
-    if (doc.y > doc.page.height - 120) {
-      doc.addPage();
-    }
-
-    // Section heading
-    const headingY = doc.y;
-    drawGoldAccent(doc, MARGIN, headingY + 1, 20);
-
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(12)
-      .fillColor(COLOURS.gold)
-      .text(section.heading, MARGIN + 26, headingY, { width: CONTENT_WIDTH - 26 });
-
-    doc.moveDown(0.6);
-
-    // Section body
-    doc
-      .font("Helvetica")
-      .fontSize(10.5)
-      .fillColor(COLOURS.white)
-      .text(section.body, MARGIN, doc.y, {
-        width: CONTENT_WIDTH,
-        lineGap: 5,
-        paragraphGap: 6,
-      });
-
-    doc.moveDown(1.4);
-  });
-};
-
-// ─── Back cover ───────────────────────────────────────────────────────────────
-
-const drawBackCover = (doc) => {
-  doc.addPage();
-
-  // Centre vertically
-  const midY = doc.page.height / 2 - 40;
-
-  doc
-    .moveTo(MARGIN, midY - 20)
-    .lineTo(PAGE_WIDTH - MARGIN, midY - 20)
-    .strokeColor(COLOURS.gold)
-    .lineWidth(0.5)
-    .stroke();
-
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(18)
-    .fillColor(COLOURS.white)
-    .text("ARTFUL METHOD", MARGIN, midY, {
+    .fillColor(COLOURS.muted)
+    .text("ARTFUL METHOD", MARGIN, y, {
       width: CONTENT_WIDTH,
       align: "center",
       characterSpacing: 3,
     });
 
+  y = doc.y + 14;
   doc
-    .font("Helvetica")
-    .fontSize(10)
-    .fillColor(COLOURS.mutedText)
-    .text("Aesthetic Intelligence", MARGIN, midY + 28, {
+    .font(F.bold)
+    .fontSize(26)
+    .fillColor(COLOURS.black)
+    .text(archetype.name, MARGIN, y, { width: CONTENT_WIDTH, align: "center" });
+
+  if (archetype.subtitle) {
+    doc
+      .font(F.regular)
+      .fontSize(13)
+      .fillColor(COLOURS.muted)
+      .text(archetype.subtitle, MARGIN, doc.y + 6, {
+        width: CONTENT_WIDTH,
+        align: "center",
+      });
+  }
+
+  // Full-width divider under the title block, with room above and below.
+  const dividerY = doc.y + 26;
+  hairline(doc, dividerY);
+
+  // ── Cover headers: meta lines + participant + date (Section I) ──────────────
+  // Sits as its own centered block, well clear of the divider above.
+  const name = participant?.name;
+  const date = participant?.date;
+  const metaLines = (meta || []).filter((m) => m && m.trim());
+
+  if (metaLines.length || name || date) {
+    doc.y = dividerY + 30; // divider + comfortable gap
+
+    // Context lines, e.g. "Session: The Story Arc", "Artwork: Apollo and Daphne"
+    metaLines.forEach((line) => {
+      doc
+        .font(F.regular)
+        .fontSize(10.5)
+        .fillColor(COLOURS.muted)
+        .text(line, MARGIN, doc.y, { width: CONTENT_WIDTH, align: "center" });
+      doc.y += 4;
+    });
+    if (metaLines.length) doc.y += 10;
+
+    if (name) {
+      doc
+        .font(F.medium)
+        .fontSize(12)
+        .fillColor(COLOURS.text)
+        .text(`Prepared for ${name}`, MARGIN, doc.y, {
+          width: CONTENT_WIDTH,
+          align: "center",
+        });
+      doc.y += 8;
+    }
+    if (date) {
+      doc
+        .font(F.regular)
+        .fontSize(10)
+        .fillColor(COLOURS.muted)
+        .text(date, MARGIN, doc.y, {
+          width: CONTENT_WIDTH,
+          align: "center",
+          characterSpacing: 0.5,
+        });
+    }
+  }
+};
+
+// Format a date as e.g. "5 June 2026".
+const formatReportDate = (d) => {
+  const dt = d instanceof Date ? d : new Date();
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+  return `${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()}`;
+};
+
+// ─── Typographic building blocks (minimal + accent rule) ─────────────────────
+
+// Small uppercase eyebrow label, e.g. "SESSION 1" or a sub-label.
+const drawEyebrow = (doc, text) => {
+  doc
+    .font(F.semibold)
+    .fontSize(8.5)
+    .fillColor(COLOURS.muted)
+    .text(text.toUpperCase(), MARGIN, doc.y, {
+      width: CONTENT_WIDTH,
+      characterSpacing: 1.8,
+    });
+  doc.moveDown(0.25);
+};
+
+// Major section heading: bold title with a short accent rule beneath it.
+const drawSectionHeading = (doc, text) => {
+  ensureSpace(doc, 72);
+  doc.moveDown(0.4);
+  doc
+    .font(F.bold)
+    .fontSize(15)
+    .fillColor(COLOURS.black)
+    .text(text, MARGIN, doc.y, { width: CONTENT_WIDTH });
+  // short accent rule
+  const ry = doc.y + 5;
+  doc
+    .moveTo(MARGIN, ry)
+    .lineTo(MARGIN + 34, ry)
+    .strokeColor(COLOURS.accent)
+    .lineWidth(2)
+    .stroke();
+  doc.y = ry + 10;
+};
+
+// Sub-heading (e.g. "Your Range: Artist") — lighter than a section heading.
+const drawSubHeading = (doc, text) => {
+  ensureSpace(doc, 54);
+  doc.moveDown(0.3);
+  doc
+    .font(F.semibold)
+    .fontSize(12)
+    .fillColor(COLOURS.black)
+    .text(text, MARGIN, doc.y, { width: CONTENT_WIDTH });
+  doc.moveDown(0.4);
+};
+
+const drawBody = (doc, text, gapAfter = 1.0) => {
+  doc
+    .font(F.regular)
+    .fontSize(10.5)
+    .fillColor(COLOURS.text)
+    .text(text, MARGIN, doc.y, {
+      width: CONTENT_WIDTH,
+      lineGap: 4.5,
+      paragraphGap: 8,
+    });
+  doc.moveDown(gapAfter);
+};
+
+// Quote set off with a left accent bar and indent.
+const drawQuote = (doc, quote) => {
+  ensureSpace(doc, 56);
+  const startY = doc.y;
+  const indent = 16;
+  doc
+    .font(F.medium)
+    .fontSize(11.5)
+    .fillColor(COLOURS.black)
+    .text(`“${quote}”`, MARGIN + indent, startY, {
+      width: CONTENT_WIDTH - indent,
+      lineGap: 3,
+    });
+  // Left bar spanning the quote height
+  doc
+    .moveTo(MARGIN, startY + 1)
+    .lineTo(MARGIN, doc.y - 2)
+    .strokeColor(COLOURS.quoteBar)
+    .lineWidth(2.5)
+    .stroke();
+  doc.moveDown(0.5);
+};
+
+// ─── Quotes block (Type 1: What You Said and What It Reveals) ─────────────────
+const drawQuotes = (doc, quotesAndMeanings) => {
+  drawSectionHeading(doc, "What You Said and What It Reveals");
+
+  quotesAndMeanings.forEach((item, idx) => {
+    ensureSpace(doc, 96);
+    drawQuote(doc, item.quote);
+
+    const meaning = item.meaning ?? item.vts_commentary ?? "";
+    if (meaning) {
+      doc
+        .font(F.regular)
+        .fontSize(10.5)
+        .fillColor(COLOURS.text)
+        .text(meaning, MARGIN, doc.y, { width: CONTENT_WIDTH, lineGap: 4.5 });
+    }
+
+    if (idx < quotesAndMeanings.length - 1) {
+      doc.moveDown(0.9);
+      hairline(doc, doc.y);
+      doc.moveDown(0.9);
+    } else {
+      doc.moveDown(0.6);
+    }
+  });
+};
+
+// ─── Teaser cards (Type 1) ────────────────────────────────────────────────────
+const drawTeasers = (doc, teaserCards) => {
+  drawSectionHeading(doc, "Your Perceptual Signature");
+
+  teaserCards.forEach((line, idx) => {
+    ensureSpace(doc, 52);
+    const y = doc.y;
+    doc
+      .font(F.bold)
+      .fontSize(11)
+      .fillColor(COLOURS.accent)
+      .text(String(idx + 1).padStart(2, "0"), MARGIN, y, { width: 26 });
+    doc
+      .font(F.regular)
+      .fontSize(10.5)
+      .fillColor(COLOURS.text)
+      .text(line, MARGIN + 30, y, { width: CONTENT_WIDTH - 30, lineGap: 4.5 });
+    doc.moveDown(0.85);
+  });
+  doc.moveDown(0.3);
+};
+
+// Detect a GiR "Session N: Dominant Archetype: X" heading and render it as an
+// eyebrow ("SESSION N") + bold archetype name, instead of one flat bold line.
+const SESSION_HEADING_RE = /^Session\s+(\d+):\s*Dominant Archetype:\s*(.+)$/i;
+
+// One archetype entry inside the grouped "Your Range" list: an accent dot, the
+// archetype name in bold, then its paragraph.
+const drawRangeItem = (doc, mode, body) => {
+  ensureSpace(doc, 56);
+  doc.moveDown(0.5);
+  const y = doc.y;
+  // accent dot
+  doc.circle(MARGIN + 3, y + 5, 2.5).fill(COLOURS.accent);
+  doc
+    .font(F.semibold)
+    .fontSize(11.5)
+    .fillColor(COLOURS.black)
+    .text(mode, MARGIN + 16, y, { width: CONTENT_WIDTH - 16 });
+  doc.moveDown(0.3);
+  if (body) {
+    doc
+      .font(F.regular)
+      .fontSize(10.5)
+      .fillColor(COLOURS.text)
+      .text(body, MARGIN + 16, doc.y, { width: CONTENT_WIDTH - 16, lineGap: 4.5 });
+  }
+};
+
+// ─── Report sections (intro + typed headings/bodies) ─────────────────────────
+const drawReportSections = (doc, report) => {
+  if (report.intro && report.intro.trim()) {
+    drawBody(doc, report.intro, 1.2);
+  }
+
+  const sections = report.sections || [];
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i];
+    const heading = section.heading || "";
+    const sessionMatch = heading.match(SESSION_HEADING_RE);
+
+    if (sessionMatch) {
+      // Evidence block: eyebrow + archetype name, then quote + reflection.
+      ensureSpace(doc, 90);
+      doc.moveDown(0.3);
+      drawEyebrow(doc, `Session ${sessionMatch[1]}`);
+      doc
+        .font(F.bold)
+        .fontSize(13)
+        .fillColor(COLOURS.black)
+        .text(sessionMatch[2].trim(), MARGIN, doc.y, { width: CONTENT_WIDTH });
+      doc.moveDown(0.45);
+
+      // section.body for evidence is `"quote"\n\nreflection`
+      const body = section.body || "";
+      const m = body.match(/^\s*["“”](.+?)["“”]\s*\n+([\s\S]*)$/);
+      if (m) {
+        drawQuote(doc, m[1].trim());
+        drawBody(doc, m[2].trim(), 0.9);
+      } else {
+        drawBody(doc, body, 0.9);
+      }
+      continue;
+    }
+
+    // Group consecutive "Your Range: X" sections under a single heading + list.
+    if (/^Your Range:/i.test(heading)) {
+      drawSectionHeading(doc, "Your Range");
+      while (i < sections.length && /^Your Range:/i.test(sections[i].heading || "")) {
+        const mode = sections[i].heading.replace(/^Your Range:\s*/i, "").trim();
+        drawRangeItem(doc, mode, sections[i].body || "");
+        i++;
+      }
+      i--; // step back so the for-loop's i++ lands on the next section
+      doc.moveDown(0.6);
+      continue;
+    }
+
+    // Everything else → major section heading + body.
+    if (heading) drawSectionHeading(doc, heading);
+    if (section.body) drawBody(doc, section.body);
+  }
+};
+
+// ─── Footer wordmark on the last content page (no separate blank back cover) ──
+const drawClosing = (doc) => {
+  ensureSpace(doc, 70);
+  doc.moveDown(1.0);
+  hairline(doc, doc.y);
+  doc.moveDown(0.8);
+  doc
+    .font(F.semibold)
+    .fontSize(11)
+    .fillColor(COLOURS.black)
+    .text("ARTFUL METHOD", MARGIN, doc.y, {
+      width: CONTENT_WIDTH,
+      align: "center",
+      characterSpacing: 2,
+    });
+  doc
+    .font(F.regular)
+    .fontSize(9)
+    .fillColor(COLOURS.muted)
+    .text(`Aesthetic Intelligence · ${new Date().getFullYear()}`, MARGIN, doc.y + 4, {
       width: CONTENT_WIDTH,
       align: "center",
     });
-
-  doc
-    .moveTo(MARGIN, midY + 52)
-    .lineTo(PAGE_WIDTH - MARGIN, midY + 52)
-    .strokeColor(COLOURS.gold)
-    .lineWidth(0.5)
-    .stroke();
 };
 
 // ─── Main: build PDF buffer ───────────────────────────────────────────────────
 
 /**
- * Generates a PDF from the archetype analysis result and returns a Buffer.
- * @param {{ archetype, teaserCards, quotesAndMeanings, report }} result
+ * Generates a white/black, Montserrat, logo-branded PDF and returns a Buffer.
+ * Content flows continuously so there are no trailing blank pages.
+ * @param {{ archetype, teaserCards, quotesAndMeanings, report, participant }} result
+ *        participant: { name?: string, date?: string|Date } shown on the cover page.
  * @returns {Promise<Buffer>}
  */
 const generateReportPdf = (result) => {
   return new Promise((resolve, reject) => {
-    const { archetype, teaserCards, quotesAndMeanings, report } = result;
+    const { archetype, teaserCards, quotesAndMeanings, report, participant, meta } = result;
+
+    // Participant details for the cover (Section I). Date defaults to today.
+    const cover = {
+      name: participant?.name || null,
+      date: formatReportDate(participant?.date),
+    };
 
     const doc = new PDFDocument({
       size: "A4",
       margin: MARGIN,
       autoFirstPage: false,
       info: {
-        Title: `Aesthetic Archetype Report — ${archetype.name}`,
+        Title: `Artful Method Report: ${archetype?.name ?? ""}`.trim(),
         Author: "Artful Method",
       },
     });
 
     const chunks = [];
-    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("data", (c) => chunks.push(c));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    // Fill every page with the dark background automatically
-    doc.on("pageAdded", () => {
-      addPageBackground(doc);
-    });
+    registerFonts(doc);
 
-    // ── Page 1: Cover
+    // Paint white background on every page as it is added.
+    doc.on("pageAdded", () => paintBackground(doc));
+
+    // Cover (adds the first page).
+    drawCover(doc, archetype || {}, cover, meta);
+
+    // Body: continue on a fresh page so the cover stays clean.
     doc.addPage();
-    drawCoverPage(doc, archetype);
 
-    // ── Page 2: Teaser cards
     if (teaserCards && teaserCards.length) {
-      drawTeaserPage(doc, teaserCards);
+      drawTeasers(doc, teaserCards);
     }
-
-    // ── Page 3+: Quotes & meanings
     if (quotesAndMeanings && quotesAndMeanings.length) {
-      drawQuotesPage(doc, quotesAndMeanings);
+      drawQuotes(doc, quotesAndMeanings);
+    }
+    if (report && ((report.sections && report.sections.length) || report.intro)) {
+      drawReportSections(doc, report);
     }
 
-    // ── Page N+: Full report
-    if (report && report.sections && report.sections.length) {
-      drawReportPages(doc, report);
-    }
-
-    // ── Back cover
-    drawBackCover(doc);
+    drawClosing(doc);
 
     doc.end();
   });
@@ -423,13 +492,11 @@ const generateReportPdf = (result) => {
 
 /**
  * Uploads a PDF Buffer to S3 and returns the permanent S3 key (not a URL).
- * The key is stored in the DB; presigned URLs are generated on demand.
  * @param {Buffer} pdfBuffer
  * @returns {Promise<string>} S3 key e.g. "reports/uuid.pdf"
  */
 const uploadReportPdfToS3 = async (pdfBuffer) => {
   const key = `reports/${randomUUID()}.pdf`;
-
   await s3.send(
     new PutObjectCommand({
       Bucket: process.env.AWS_BUCKET,
@@ -438,7 +505,6 @@ const uploadReportPdfToS3 = async (pdfBuffer) => {
       ContentType: "application/pdf",
     }),
   );
-
   return key;
 };
 
