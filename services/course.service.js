@@ -507,8 +507,8 @@ const startLesson = async (userId, courseId, lessonId) => {
 //
 const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
   const { analyzeLessonArchetype } = require("./archetype.service");
-  const { generateReportPdf, uploadReportPdfToS3 } = require("./pdf.service");
   const { PutObjectCommand } = require("@aws-sdk/client-s3");
+  const { Op } = require("sequelize");
   const { randomUUID } = require("crypto");
   const s3 = require("../config/s3.config");
   const axios = require("axios");
@@ -652,75 +652,61 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     };
   }
 
-  // 4. Upload JSON report + generate PDF in parallel.
-  //    The Session Read (Report Type 2) is intentionally lightweight: dominant
-  //    archetype + a short session insight, ending with the fixed sign-off. It
-  //    excludes quotes, deep analysis, expansion prompts, and commentary blocks.
+  // The Session Read (Report Type 2) is intentionally lightweight: dominant
+  // archetype + a short session insight, ending with the fixed sign-off. It
+  // excludes quotes, deep analysis, expansion prompts, and commentary blocks.
+  // It is returned inline in the response and cached as JSON to S3 (no PDF).
   const jsonKey = `courses/reports/json/${randomUUID()}.json`;
+
+  // Fetch the lesson's position in the course to decide the closing sign-off.
+  const coverLesson = await CourseLesson.findByPk(lessonId, {
+    attributes: ["title", "sort_order"],
+  });
+
+  // On the final lesson of the course there is no "next session", so the
+  // forward-looking sign-off is replaced with a course-completion line. A lesson
+  // is last when no other active lesson in the same course has a higher
+  // sort_order.
+  const laterLessonCount = await CourseLesson.count({
+    where: {
+      course_id: attempt.course_id,
+      is_active: true,
+      sort_order: { [Op.gt]: coverLesson?.sort_order ?? 0 },
+    },
+  });
+  if (laterLessonCount === 0) {
+    analysisResult.signoff =
+      "You have completed every session in this course. Well done on seeing it through to the end.";
+  }
+
+  // Stringify AFTER the possible sign-off override so the persisted JSON and
+  // the DB report_json carry the same closing line.
   const jsonStr = JSON.stringify(analysisResult);
 
-  const pdfArchetype = {
-    name: analysisResult.archetype.name,
-    subtitle: analysisResult.archetype.subtitle,
-  };
-
-  // Cover headers (Report Type 2): Session Title + Artwork Explored.
-  const [coverLesson, coverContent] = await Promise.all([
-    CourseLesson.findByPk(lessonId, { attributes: ["title"] }),
-    LessonContent.findOne({
-      where: { course_lesson_id: lessonId },
-      attributes: ["artwork_title"],
+  // 4. Cache the Session Read JSON to S3 (no PDF — the report is returned inline
+  //    in the response and re-fetchable via getLessonReport).
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: process.env.AWS_BUCKET,
+      Key: jsonKey,
+      Body: jsonStr,
+      ContentType: "application/json",
     }),
-  ]);
-  const coverMeta = [
-    coverLesson?.title ? `Session: ${coverLesson.title}` : null,
-    coverContent?.artwork_title ? `Artwork Explored: ${coverContent.artwork_title}` : null,
-  ].filter(Boolean);
+  );
 
-  const [pdfBuffer] = await Promise.all([
-    generateReportPdf({
-      archetype: pdfArchetype,
-      participant: { name: user?.name },
-      meta: coverMeta,
-      teaserCards: [],
-      quotesAndMeanings: [],
-      report: {
-        intro: "",
-        sections: [
-          {
-            heading: "Your session insight",
-            body: `${analysisResult.sessionInsight}\n\n${analysisResult.signoff}`,
-          },
-        ],
-      },
-    }),
-    s3.send(
-      new PutObjectCommand({
-        Bucket: process.env.AWS_BUCKET,
-        Key: jsonKey,
-        Body: jsonStr,
-        ContentType: "application/json",
-      }),
-    ),
-  ]);
-
-  const pdfKey = await uploadReportPdfToS3(pdfBuffer);
-
-  // 5. Mark attempt completed, store S3 keys + JSON in DB
+  // 5. Mark attempt completed, store JSON key + JSON in DB
   await attempt.update({
     status: "completed",
     completed_at: new Date(),
-    report_s3_key: pdfKey,
     report_json_s3_key: jsonKey,
     report_json: analysisResult,
   });
 
-  // 6. Increment lessons_completed on UserCourseProgress + fetch lesson + total lesson count in parallel
-  const [, lesson, totalLessons] = await Promise.all([
+  // 6. Increment lessons_completed on UserCourseProgress + fetch total lesson count
+  const [, totalLessons] = await Promise.all([
     UserCourseProgress.increment("lessons_completed", {
       where: { user_id: userId, course_id: attempt.course_id },
     }),
-    CourseLesson.findByPk(lessonId, { attributes: ["title", "sort_order"] }),
     CourseLesson.count({ where: { course_id: attempt.course_id, is_active: true } }),
   ]);
 
@@ -732,19 +718,8 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     await updatedProgress.update({ status: "completed", completed_at: new Date() });
   }
 
-  // 7. Send lesson report email with PDF attached — fire-and-forget (non-fatal)
-  if (user?.email) {
-    const { sendLessonReportEmail } = require("./email.service");
-    sendLessonReportEmail({
-      userId,
-      email: user.email,
-      lessonTitle: lesson?.title ?? `Session ${lesson?.sort_order ?? ""}`,
-      lessonNumber: lesson?.sort_order ?? "",
-      pdfBuffer,
-    });
-  }
-
-  return { attempt_id: attempt.id, status: "completed" };
+  // 7. Return the Session Read report inline in the response.
+  return { attempt_id: attempt.id, status: "completed", report: analysisResult };
 };
 
 // ─── Get Lesson Report — return cached JSON from S3 + artwork image URL ──────
@@ -798,23 +773,6 @@ const getLessonReport = async (attemptId, userId) => {
     : null;
 
   return report;
-};
-
-// ─── Get Lesson Report PDF presigned URL ─────────────────────────────────────
-
-const getLessonReportPdf = async (attemptId, userId) => {
-  const attempt = await UserLessonAttempt.findOne({
-    where: { id: attemptId, user_id: userId },
-  });
-  if (!attempt)
-    throw new AppError("Session attempt not found", 404, "NOT_FOUND");
-  if (attempt.status !== "completed")
-    throw new AppError("Session not yet completed", 400, "NOT_COMPLETED");
-  if (!attempt.report_s3_key)
-    throw new AppError("PDF report not available", 404, "NOT_FOUND");
-
-  const pdf_url = await getPresignedUrl(attempt.report_s3_key);
-  return { pdf_url };
 };
 
 // ─── Course Report (Growth in Range) ─────────────────────────────────────────
@@ -1220,7 +1178,6 @@ module.exports = {
   startLesson,
   completeLesson,
   getLessonReport,
-  getLessonReportPdf,
   getCourseReport,
   getCourseReportPdf,
   setHomeBaseCourse,

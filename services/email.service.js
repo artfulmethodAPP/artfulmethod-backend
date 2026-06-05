@@ -93,63 +93,6 @@ const sendResetPasswordLinkEmail = async (email, resetLink, user_id) => {
   }
 };
 
-// ─── Lesson Report Email ──────────────────────────────────────────────────────
-
-const sendLessonReportEmail = async ({ userId, email, lessonTitle, lessonNumber, pdfBuffer }) => {
-  const user = await User.findByPk(userId, { attributes: ["email_reports_enabled"] });
-  if (!user?.email_reports_enabled) return;
-
-  const subject = `Your Session ${lessonNumber} Report: ${lessonTitle}`;
-  try {
-    await transporter.sendMail({
-      from: FROM_ADDRESS,
-      to: email,
-      subject,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; color: #111; background: #fafafa;">
-          <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #1A1A1A;">Your Session ${lessonNumber} Report</h2>
-          <p style="font-size: 14px; color: #444; margin-bottom: 6px;">
-            You've completed <strong>${lessonTitle}</strong>.
-          </p>
-          <p style="font-size: 14px; color: #444; margin-bottom: 24px;">
-            Your personal Aesthetic Archetype report for this session is attached as a PDF.
-            It's yours to keep, you can return to it any time.
-          </p>
-          <p style="font-size: 12px; color: #888; margin-top: 32px;">© ${new Date().getFullYear()} Artful Method</p>
-        </div>
-      `,
-      attachments: [
-        {
-          filename: `ArtfulMethod-Session-${lessonNumber}-Report.pdf`,
-          content: pdfBuffer,
-          contentType: "application/pdf",
-        },
-      ],
-    });
-
-    await EmailLog.create({
-      user_id: userId,
-      email,
-      email_type: "report",
-      subject,
-      status: "sent",
-      sent_at: new Date(),
-    });
-  } catch (error) {
-    console.error("[sendLessonReportEmail] error:", error.message);
-    await EmailLog.create({
-      user_id: userId,
-      email,
-      email_type: "report",
-      subject,
-      status: "failed",
-      error_message: error.message,
-      sent_at: new Date(),
-    }).catch(() => {});
-    // Non-fatal — lesson completion must not fail due to email
-  }
-};
-
 // ─── Archetype Report Email (onboarding single-encounter portrait) ────────────
 
 const sendArchetypeReportEmail = async ({ userId, email, archetypeName, pdfBuffer }) => {
@@ -264,4 +207,4 @@ const sendCourseReportEmail = async ({ userId, email, courseName, pdfBuffer }) =
   }
 };
 
-module.exports = { sendOTPEmail, sendResetPasswordLinkEmail, sendArchetypeReportEmail, sendLessonReportEmail, sendCourseReportEmail };
+module.exports = { sendOTPEmail, sendResetPasswordLinkEmail, sendArchetypeReportEmail, sendCourseReportEmail };

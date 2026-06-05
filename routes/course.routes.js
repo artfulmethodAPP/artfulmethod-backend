@@ -27,7 +27,6 @@ const {
   startLesson,
   completeLesson,
   getLessonReport,
-  getLessonReportPdf,
   getCourseReport,
   getCourseReportPdf,
   createLessonContent,
@@ -1222,52 +1221,6 @@ router.get(
   authenticate,
   validate(attemptIdSchema, "params"),
   getLessonReport,
-);
-
-/**
- * @swagger
- * /api/v1/courses/attempts/{attemptId}/report/pdf:
- *   get:
- *     summary: Get lesson report PDF (presigned URL)
- *     description: Returns a short-lived presigned S3 URL to download the lesson PDF report.
- *     tags: [Courses]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: attemptId
- *         required: true
- *         schema:
- *           type: integer
- *     responses:
- *       200:
- *         description: PDF URL generated
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     pdf_url:
- *                       type: string
- *                       example: "https://s3.amazonaws.com/..."
- *       400:
- *         description: Lesson not yet completed
- *       401:
- *         description: Unauthorized
- *       404:
- *         description: Attempt or PDF not found
- */
-router.get(
-  "/attempts/:attemptId/report/pdf",
-  authenticate,
-  validate(attemptIdSchema, "params"),
-  getLessonReportPdf,
 );
 
 // ─── Course Report (Growth in Range) ──────────────────────────────────────────

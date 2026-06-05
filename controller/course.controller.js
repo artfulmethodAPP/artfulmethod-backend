@@ -155,16 +155,6 @@ const getLessonReport = asyncHandler(async (req, res) => {
   });
 });
 
-const getLessonReportPdf = asyncHandler(async (req, res) => {
-  const { attemptId } = req.params;
-  const data = await CourseService.getLessonReportPdf(attemptId, req.user.id);
-
-  return sendSuccess(res, {
-    message: "Session report PDF URL generated",
-    data,
-  });
-});
-
 // ─── Course Report (Growth in Range) ─────────────────────────────────────────
 
 const getCourseReport = asyncHandler(async (req, res) => {
@@ -266,7 +256,6 @@ module.exports = {
   startLesson,
   completeLesson,
   getLessonReport,
-  getLessonReportPdf,
   getCourseReport,
   getCourseReportPdf,
   createLessonContent,
