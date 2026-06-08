@@ -47,6 +47,13 @@ const verifyOtp = asyncHandler(async (req, res) => {
   });
 });
 
+const resendOtp = asyncHandler(async (req, res) => {
+  const result = await authService.resendOTP(req.body);
+  return sendSuccess(res, {
+    message: result.message,
+  });
+});
+
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
   const result = await authService.forgotPassword(email);
@@ -107,6 +114,7 @@ module.exports = {
   refreshToken,
   logoutUser,
   verifyOtp,
+  resendOtp,
   forgotPassword,
   resetPassword,
   updatePersonalInfo,

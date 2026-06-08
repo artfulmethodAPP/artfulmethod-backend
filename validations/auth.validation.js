@@ -46,6 +46,16 @@ const verifyOtpSchema = z.object({
 });
 
 // =====================
+// Resend OTP Schema
+// =====================
+const resendOtpSchema = z.object({
+  email: z
+    .string({ error: "Email is required" })
+    .email("Invalid email format")
+    .max(100),
+});
+
+// =====================
 // Login Schema
 // =====================
 const loginSchema = z.object({
@@ -117,6 +127,7 @@ const updatePersonalInfoSchema = z.object({
 module.exports = {
   registerSchema,
   verifyOtpSchema,
+  resendOtpSchema,
   loginSchema,
   refreshTokenSchema,
   logoutSchema,

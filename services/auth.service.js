@@ -119,7 +119,12 @@ const register = async ({
       deleted_at: null,
     });
 
-    await sendOTPEmail(email, otp_code, existingUser.id);
+    // Fire-and-forget: don't block the response on SMTP. The .catch() is
+    // required — without it a failed send becomes an unhandled rejection that
+    // can crash the process. The failure is already recorded in EmailLog.
+    sendOTPEmail(email, otp_code, existingUser.id).catch((err) =>
+      console.error("[register] background OTP email failed:", err.message),
+    );
 
     return {
       id: existingUser.id,
@@ -149,7 +154,11 @@ const register = async ({
     otp_expires_at,
   });
 
-  await sendOTPEmail(email, otp_code, user.id);
+  // Fire-and-forget (see revive path above) — response returns as soon as the
+  // user row is created; email delivery happens in the background.
+  sendOTPEmail(email, otp_code, user.id).catch((err) =>
+    console.error("[register] background OTP email failed:", err.message),
+  );
 
   return {
     id: user.id,
@@ -158,6 +167,37 @@ const register = async ({
     dob: user.dob,
     created_at: user.created_at,
     email_reports_enabled: user.email_reports_enabled,
+  };
+};
+
+const resendOTP = async ({ email }) => {
+  const user = await User.findOne({ where: { email, deleted_at: null } });
+
+  // Generic response for unknown emails — don't leak which emails are registered.
+  if (!user) {
+    return {
+      message: "If an account exists for this email, a new OTP has been sent.",
+    };
+  }
+
+  // Already verified — nothing to resend.
+  if (user.is_verified) {
+    throw new AppError("This account is already verified.", 409, "CONFLICT");
+  }
+
+  const otp_code = generateOTP();
+  const otp_expires_at = new Date(Date.now() + 5 * 60 * 1000);
+
+  await user.update({ otp_code, otp_expires_at });
+
+  // Fire-and-forget (see register) — response returns immediately; the .catch()
+  // prevents a failed send from becoming an unhandled rejection.
+  sendOTPEmail(email, otp_code, user.id).catch((err) =>
+    console.error("[resendOTP] background OTP email failed:", err.message),
+  );
+
+  return {
+    message: "A new OTP has been sent to your email.",
   };
 };
 
@@ -200,7 +240,6 @@ const verifyOTP = async ({ email, otp_code }) => {
 
 const login = async ({ email, password = "" }) => {
   const user = await User.findOne({ where: { email } });
-  console.log(user)
   if (!user || user.deleted_at) {
     throw new AppError(
       "We couldn’t find an account with this email",
@@ -506,6 +545,7 @@ const checkEmail = async (email) => {
 module.exports = {
   register,
   verifyOTP,
+  resendOTP,
   login,
   forgotPassword,
   resetPassword,

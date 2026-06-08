@@ -4,12 +4,18 @@ const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT),
   secure: false,
+  // Reuse authenticated connections instead of re-doing the TCP+STARTTLS+AUTH
+  // handshake on every send. Cuts per-email cost and avoids connection-rate
+  // throttling from the SMTP provider under bursts.
+  pool: true,
+  maxConnections: 5,
+  maxMessages: 100,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
   tls: {
-    rejectUnauthorized: false, 
+    rejectUnauthorized: true,
   },
 });
 

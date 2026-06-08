@@ -7,6 +7,7 @@ const {
   refreshToken,
   logoutUser,
   verifyOtp,
+  resendOtp,
   forgotPassword,
   resetPassword,
   updatePersonalInfo,
@@ -25,6 +26,7 @@ const {
   refreshTokenSchema,
   logoutSchema,
   verifyOtpSchema,
+  resendOtpSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   updatePersonalInfoSchema,
@@ -144,6 +146,39 @@ router.post("/register", validate(registerSchema), createUser);
  *         description: Invalid OTP / OTP expired / Already verified
  */
 router.post("/verify-otp", validate(verifyOtpSchema), verifyOtp);
+
+/**
+ * @swagger
+ * /api/v1/auth/resend-otp:
+ *   post:
+ *     summary: Resend the email verification OTP
+ *     description: |
+ *       Generates a fresh OTP (resetting the 5-minute expiry) and emails it to an
+ *       unverified account. Returns a generic message for unknown emails to avoid
+ *       leaking which addresses are registered. Fails with 409 if the account is
+ *       already verified.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: john@gmail.com
+ *     responses:
+ *       200:
+ *         description: A new OTP has been sent (or generic response for unknown email)
+ *       409:
+ *         description: This account is already verified
+ *       400:
+ *         description: Validation error
+ */
+router.post("/resend-otp", validate(resendOtpSchema), resendOtp);
 
 /**
  * @swagger
