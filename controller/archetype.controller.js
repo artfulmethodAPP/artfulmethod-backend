@@ -36,6 +36,7 @@ const analyzeTranscript = asyncHandler(async (req, res) => {
       message: result.notice.notice_title,
       data: {
         rejected: true,
+        reason: result.notice.code,
         notice_title: result.notice.notice_title,
         notice_message: result.notice.notice_message,
       },
@@ -59,6 +60,7 @@ const analyzeTranscript = asyncHandler(async (req, res) => {
   const report = await AiReport.create({
     user_id: userId,
     pdf_s3_key: pdfS3Key,
+    report_json: result,
     error_message: errorMessage,
   });
 
@@ -84,7 +86,7 @@ const analyzeTranscript = asyncHandler(async (req, res) => {
   return sendSuccess(res, {
     statusCode: 200,
     message: "Archetype analysis completed successfully",
-    data: { ...result, streak, report_id: report.id },
+    data: { rejected: false, ...result, streak, report_id: report.id },
   });
 });
 

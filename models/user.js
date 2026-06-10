@@ -62,6 +62,12 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATEONLY,
         allowNull: true,
       },
+      timezone: {
+        // IANA timezone name (e.g. "Asia/Karachi") sent by the client. Defaults to UTC.
+        type: DataTypes.STRING(64),
+        allowNull: false,
+        defaultValue: "UTC",
+      },
       otp_code: {
         type: DataTypes.STRING(6),
         allowNull: true,

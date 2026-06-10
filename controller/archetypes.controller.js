@@ -139,6 +139,38 @@ const getReportUrl = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * GET /api/v1/archetype/report
+ * Returns the logged-in user's latest onboarding archetype assessment report
+ * (the stored report_json from Ai_Reports).
+ */
+const getMyReport = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+
+  const report = await AiReport.findOne({
+    where: { user_id: userId },
+    order: [["created_at", "DESC"]],
+  });
+
+  if (!report) {
+    throw new AppError("No archetype report found", 404, "NOT_FOUND");
+  }
+
+  // Mirror the POST /archetype/analyze response shape: spread the stored
+  // report_json (archetype, teaserCards, quotesAndMeanings, report) flat into data.
+  const stored = report.report_json || {};
+
+  return sendSuccess(res, {
+    statusCode: 200,
+    message: "Archetype report retrieved successfully",
+    data: {
+      rejected: false,
+      ...stored,
+      report_id: report.id,
+    },
+  });
+});
+
 module.exports = {
   createArchetype,
   getAllArchetypes,
@@ -146,4 +178,5 @@ module.exports = {
   updateArchetype,
   deleteArchetype,
   getReportUrl,
+  getMyReport,
 };

@@ -645,8 +645,8 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
   if (analysisResult.rejected) {
     return {
       attempt_id: attempt.id,
-      status: "rejected",
       rejected: true,
+      reason: analysisResult.notice.code,
       notice_title: analysisResult.notice.notice_title,
       notice_message: analysisResult.notice.notice_message,
     };
@@ -882,6 +882,7 @@ const getCourseReport = async (courseId, userId) => {
   if (girResult.rejected) {
     return {
       rejected: true,
+      reason: girResult.notice.code,
       notice_title: girResult.notice.notice_title,
       notice_message: girResult.notice.notice_message,
     };
@@ -1015,20 +1016,37 @@ const setHomeBaseCourse = async (userId, archetypeName) => {
 const VALID_ARCHETYPES = ["Storyteller", "Framer", "Archivist", "Artist", "Integrator"];
 
 const getPerceptionDashboard = async (userId) => {
-  const attempts = await UserLessonAttempt.findAll({
-    where: { user_id: userId, status: "completed" },
-    attributes: ["report_json"],
-  });
+  // The donut reflects BOTH the onboarding archetype assessment (Ai_Reports) and
+  // every completed session report (UserLessonAttempt). Each report contributes
+  // one count for its dominant archetype.
+  const [attempts, onboardingReports] = await Promise.all([
+    UserLessonAttempt.findAll({
+      where: { user_id: userId, status: "completed" },
+      attributes: ["report_json"],
+    }),
+    AiReport.findAll({
+      where: { user_id: userId },
+      attributes: ["report_json"],
+    }),
+  ]);
 
   const counts = { Storyteller: 0, Framer: 0, Archivist: 0, Artist: 0, Integrator: 0 };
   let total = 0;
 
-  for (const attempt of attempts) {
-    const name = attempt.report_json?.archetype?.name;
+  const tally = (name) => {
     if (name && counts[name] !== undefined) {
       counts[name]++;
       total++;
     }
+  };
+
+  // Session reports (Type 2)
+  for (const attempt of attempts) {
+    tally(attempt.report_json?.archetype?.name);
+  }
+  // Onboarding archetype reports (Type 1)
+  for (const report of onboardingReports) {
+    tally(report.report_json?.archetype?.name);
   }
 
   const MODE_LABELS = [
@@ -1039,19 +1057,31 @@ const getPerceptionDashboard = async (userId) => {
     "Next frontier",
   ];
 
+  // Sort by raw count (used internally for ranking the mode tier). `count` is not
+  // returned in the response; the frontend uses `percentage`.
   const sorted = VALID_ARCHETYPES.map((name) => ({
     name,
     subtitle: ARCHETYPE_SUBTITLES[name],
     count: counts[name],
+    // Percentage is over the combined total (sessions + onboarding) so the donut
+    // reflects both report types.
     percentage: total > 0 ? Math.round((counts[name] / total) * 100) : 0,
   })).sort((a, b) => b.count - a.count);
 
   const archetypes = sorted.map((item, index) => ({
-    ...item,
+    name: item.name,
+    subtitle: item.subtitle,
+    percentage: item.percentage,
     mode: item.percentage === 0 ? "Emerging" : (MODE_LABELS[index] || "Emerging"),
   }));
 
-  return { total_lessons_completed: total, archetypes };
+  // Keep total_lessons_completed as the count of completed sessions only, so the
+  // existing field stays accurate; the donut percentages use the combined total.
+  const sessionsCompleted = attempts.filter(
+    (a) => a.report_json?.archetype?.name,
+  ).length;
+
+  return { total_lessons_completed: sessionsCompleted, archetypes };
 };
 
 const getArchetypePerceptionReport = async (userId, archetype) => {

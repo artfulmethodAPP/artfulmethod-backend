@@ -8,6 +8,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 const JWT_RESET_SECRET = process.env.JWT_RESET_SECRET || JWT_SECRET;
 const { sendOTPEmail, sendResetPasswordLinkEmail } = require("./email.service");
+const { localDateString } = require("../utils/timezone");
 const e = require("cors");
 
 // =====================
@@ -21,7 +22,10 @@ const generateOTP = () => {
 // Streak Helper
 // =====================
 const computeStreak = async (user) => {
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  // "Today" and "yesterday" are computed in the user's own timezone so streak
+  // day boundaries match their local calendar day, not the server's UTC day.
+  // Timestamps themselves stay UTC; only the day label is localized. Falls back to UTC.
+  const today = localDateString(new Date(), user.timezone);
   const last = user.last_activity_date; // DATEONLY string or null
 
   let newStreak;
@@ -32,14 +36,14 @@ const computeStreak = async (user) => {
   } else if (last === today) {
     // Already counted today — no change
     return {
-      streakCount:      user.streak_count,
-      longestStreak:    user.longest_streak,
+      streakCount: user.streak_count,
+      longestStreak: user.longest_streak,
       lastActivityDate: last,
     };
   } else {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+    const yesterdayStr = localDateString(yesterday, user.timezone);
 
     if (last === yesterdayStr) {
       // Consecutive day
@@ -51,8 +55,16 @@ const computeStreak = async (user) => {
   }
 
   const newLongest = Math.max(newStreak, user.longest_streak || 0);
-  await user.update({ streak_count: newStreak, longest_streak: newLongest, last_activity_date: today });
-  return { streakCount: newStreak, longestStreak: newLongest, lastActivityDate: today };
+  await user.update({
+    streak_count: newStreak,
+    longest_streak: newLongest,
+    last_activity_date: today,
+  });
+  return {
+    streakCount: newStreak,
+    longestStreak: newLongest,
+    lastActivityDate: today,
+  };
 };
 
 // =====================
@@ -67,6 +79,7 @@ const register = async ({
   goal,
   art_frequency,
   source,
+  timezone,
 }) => {
   // Age validation — must be at least 16 years old
   if (dob) {
@@ -111,6 +124,7 @@ const register = async ({
       goal: goal || null,
       art_frequency: art_frequency || null,
       source: source || null,
+      ...(timezone ? { timezone } : {}),
       otp_code,
       otp_expires_at,
       is_verified: false,
@@ -150,6 +164,7 @@ const register = async ({
     goal: goal || null,
     art_frequency: art_frequency || null,
     source: source || null,
+    ...(timezone ? { timezone } : {}),
     otp_code: otp_code,
     otp_expires_at,
   });
@@ -238,7 +253,7 @@ const verifyOTP = async ({ email, otp_code }) => {
   };
 };
 
-const login = async ({ email, password = "" }) => {
+const login = async ({ email, password = "", timezone }) => {
   const user = await User.findOne({ where: { email } });
   if (!user || user.deleted_at) {
     throw new AppError(
@@ -252,6 +267,12 @@ const login = async ({ email, password = "" }) => {
 
   if (!isPasswordMatch) {
     throw new AppError("Incorrect password", 401, "UNAUTHORIZED");
+  }
+
+  // Keep the user's timezone current so UTC->local conversions stay correct
+  // if they sign in from a new location/device.
+  if (timezone && timezone !== user.timezone) {
+    await user.update({ timezone });
   }
 
   if (!user.is_verified) {

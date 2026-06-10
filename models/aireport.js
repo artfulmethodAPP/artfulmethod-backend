@@ -16,6 +16,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: true
     },
+    report_json: {
+      // Full archetype analysis result from POST /archetype/analyze.
+      type: DataTypes.JSON,
+      allowNull: true
+    },
     error_message: {
       type: DataTypes.TEXT,
       allowNull: true

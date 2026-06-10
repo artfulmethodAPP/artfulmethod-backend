@@ -30,6 +30,8 @@ const registerSchema = z.object({
 
   source: z.string().max(255).optional(),
 
+  // IANA timezone sent by the client (e.g. "Asia/Karachi"). Optional.
+  timezone: z.string().max(64).optional(),
 });
 
 // =====================
@@ -68,6 +70,9 @@ const loginSchema = z.object({
     .string({ error: "Password is required" })
     .min(8, "Password must be at least 8 characters")
     .max(100),
+
+  // IANA timezone sent by the client (e.g. "Asia/Karachi"). Optional.
+  timezone: z.string().max(64).optional(),
 });
 
 // =====================

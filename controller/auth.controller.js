@@ -1,11 +1,13 @@
 const authService = require("../services/auth.service");
 const asyncHandler = require("../utils/async-handler");
 const { sendSuccess } = require("../utils/api-response");
+const { timezoneFromRequest } = require("../utils/timezone");
 
-//create user api business logic  
+//create user api business logic
 
 const createUser = asyncHandler(async (req, res) => {
-  const user = await authService.register(req.body);
+  const timezone = timezoneFromRequest(req.body, req.headers);
+  const user = await authService.register({ ...req.body, timezone });
   return sendSuccess(res, {
     statusCode: 201,
     message: "User registered successfully, Please verify your email with the OTP.",
@@ -15,7 +17,8 @@ const createUser = asyncHandler(async (req, res) => {
 
 const loginUser = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
-  const result = await authService.login({ email, password });
+  const timezone = timezoneFromRequest(req.body, req.headers);
+  const result = await authService.login({ email, password, timezone });
   return sendSuccess(res, {
     message: "Login successful",
     data: result,

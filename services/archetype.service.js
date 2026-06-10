@@ -66,13 +66,15 @@ const wordCount = (text) =>
   (text || "").trim().split(/\s+/).filter(Boolean).length;
 
 // Rule B classifier — returns "OK" or "OUT_OF_SCOPE".
-const SCOPE_CHECK_SYSTEM = `You are a gatekeeper for an art-viewing reflection tool. You decide whether a transcript shows a participant genuinely engaging with a work of art (describing, interpreting, feeling, questioning, or reasoning about what they see).
+const SCOPE_CHECK_SYSTEM = `You are a strict gatekeeper for an art-viewing reflection tool. You decide whether a transcript is a person looking at and responding to a work of visual art: describing what they see, interpreting it, reacting to its mood or feeling, questioning it, or reasoning about its composition, subject, colors, figures, or meaning.
 
 Return exactly one word:
-- OK, the participant is engaging with the artwork in some form, even briefly or tentatively.
-- OUT_OF_SCOPE, the participant is not engaging with the artwork at all, is talking about completely unrelated tasks, or is being intentionally hostile, rude, or inappropriate.
+- OK, only when the transcript is clearly a response to a work of visual art that is in front of the person.
+- OUT_OF_SCOPE, when the transcript is about anything else: everyday tasks, errands, sports, technology, work, relationships, general chit-chat, instructions, or content with no clear reference to looking at an artwork. Also OUT_OF_SCOPE if it is hostile, rude, inappropriate, or random noise.
 
-When uncertain, return OK. Return only the single word. No punctuation. No explanation.`;
+Be strict. If the transcript does not clearly reference engaging with an artwork (its imagery, colors, figures, mood, composition, or meaning), return OUT_OF_SCOPE. When genuinely uncertain, prefer OUT_OF_SCOPE.
+
+Return only the single word. No punctuation. No explanation.`;
 
 // Runs Rule A then Rule B. Returns { ok: true } or { ok: false, notice }.
 // `combinedText` is the full transcript used for the word-count check; Rule B
@@ -376,23 +378,15 @@ VTS PARAPHRASING RULES, follow exactly:
    Artist:       emotional responses, empathic entry, mood/feeling statements
    Integrator:   synthesis statements, multi-thread observations, theme emergence
 
-OUTPUT FORMAT, follow exactly, no deviations:
+Select up to 4 quotes, fewer if the transcript is short. Each quote must be a DISTINCT, non-overlapping span of the transcript: never repeat the same words, never quote a phrase already used in another block, and never quote the whole transcript as one block in addition to its parts. A very short transcript may yield only 1 or 2 quotes, and that is correct: do not pad with duplicates to reach 4.
 
-QUOTE 1:
-"[exact quote from transcript, do not paraphrase the quote itself]"
-Meaning: [2-4 sentences. First sentence names the thinking move using metacognitive language. Remaining sentences explain the cognitive stage and archetype connection.]
+OUTPUT FORMAT, EXACTLY as below using these literal marker tokens, each on its own line. Never write the marker tokens inside the quote or meaning text. Output nothing before the first marker or after the last block.
 
-QUOTE 2:
-"[exact quote]"
-Meaning: [explanation]
+[[QUOTE]] <exact verbatim text from the transcript, no surrounding quotation marks>
+[[MEANING]] <2 to 4 sentences. First sentence names the thinking move in metacognitive language. Remaining sentences explain the cognitive stage and archetype connection.>
+[[END]]
 
-QUOTE 3:
-"[exact quote]"
-Meaning: [explanation]
-
-QUOTE 4:
-"[exact quote]"
-Meaning: [explanation]`;
+Repeat the three lines for each distinct quote you select (1 to 4 total).`;
 
 // ─── Prompt 4: Full Portrait Report ──────────────────────────────────────────
 
@@ -480,7 +474,8 @@ const analyzeArchetype = async ({ transcript }) => {
   // ── Parse report sections
   const reportSections = parseReportSections(reportRaw);
 
-  // ── Parse quotes
+  // ── Parse quotes (marker-based, reliable). A transcript that passed the input
+  //    safeguard is about the artwork, so quotes should always extract.
   const quotes = parseQuotes(quotesRaw);
 
   return {
@@ -546,33 +541,70 @@ const parseReportSections = (reportText) => {
   return sections;
 };
 
-// ─── Parse quotes from Prompt 4 output ───────────────────────────────────────
+// ─── Parse quotes from the quotes prompt output ──────────────────────────────
+//
+// Primary format uses [[QUOTE]] / [[MEANING]] / [[END]] markers that cannot
+// collide with prose. A legacy fallback handles the older "QUOTE 1:/Meaning:"
+// shape so old cached outputs still parse.
+
+const stripWrappingQuotes = (s) =>
+  (s || "").trim().replace(/^["'“”]+|["'“”]+$/g, "").trim();
+
+// Drop quotes that duplicate or overlap one already kept: exact match, or one
+// being a substring of the other (case/space-insensitive). Prevents the model
+// from padding short transcripts with repeated/whole-then-parts quotes.
+const dedupeQuotes = (items) => {
+  const kept = [];
+  const norm = (q) => q.toLowerCase().replace(/\s+/g, " ").trim();
+  for (const item of items) {
+    const n = norm(item.quote);
+    if (!n) continue;
+    const overlaps = kept.some((k) => {
+      const kn = norm(k.quote);
+      return kn === n || kn.includes(n) || n.includes(kn);
+    });
+    if (!overlaps) kept.push(item);
+  }
+  return kept;
+};
 
 const parseQuotes = (quotesText) => {
-  return quotesText
+  const text = quotesText || "";
+
+  // Primary: marker-based blocks.
+  const out = [];
+  const field = (block, tag) => {
+    const m = block.match(new RegExp(`\\[\\[${tag}\\]\\]\\s*([\\s\\S]*?)\\s*(?=\\[\\[|$)`, "i"));
+    return m ? m[1].trim() : "";
+  };
+  const blockRe = /\[\[QUOTE\]\]([\s\S]*?)(?:\[\[END\]\]|(?=\[\[QUOTE\]\])|$)/gi;
+  let bm;
+  while ((bm = blockRe.exec(text)) !== null) {
+    const block = bm[1];
+    // The quote is the text right after [[QUOTE]] up to [[MEANING]].
+    const quoteRaw = block.split(/\[\[MEANING\]\]/i)[0];
+    const quote = stripWrappingQuotes(quoteRaw);
+    const meaning = field(block, "MEANING");
+    if (quote) out.push({ quote, meaning });
+  }
+  if (out.length) return dedupeQuotes(out).slice(0, 4);
+
+  // Legacy fallback: "QUOTE 1: ... Meaning: ..." shape.
+  const legacy = text
     .split(/QUOTE \d+:/i)
-    .slice(1) // drop empty string before first "QUOTE 1:"
+    .slice(1)
     .map((block) => {
-      const lines = block
-        .trim()
-        .split("\n")
-        .filter((l) => l.trim());
-      // First non-empty line is the quoted text (may be wrapped in quotes)
-      const quoteLine = lines[0]?.replace(/^[""]|[""]$/g, "").trim() ?? "";
-      // Find the Meaning: line
+      const lines = block.trim().split("\n").filter((l) => l.trim());
+      const quoteLine = stripWrappingQuotes(lines[0] ?? "");
       const meaningIdx = lines.findIndex((l) => /^Meaning:/i.test(l.trim()));
       const meaning =
         meaningIdx !== -1
-          ? lines
-              .slice(meaningIdx)
-              .join(" ")
-              .replace(/^Meaning:\s*/i, "")
-              .trim()
+          ? lines.slice(meaningIdx).join(" ").replace(/^Meaning:\s*/i, "").trim()
           : "";
       return { quote: quoteLine, meaning };
     })
-    .filter((q) => q.quote.length > 0)
-    .slice(0, 4);
+    .filter((q) => q.quote.length > 0);
+  return dedupeQuotes(legacy).slice(0, 4);
 };
 
 // ─── Lesson Report — Session Read (Artful Method Report Type 2) ──────────────
@@ -697,15 +729,15 @@ const GIR_FIXED_INTRO = `This portrait emerges from your own words. Over the cou
 
 // Step 1 — Score each transcript (batched single call, structured output)
 const GIR_SCORING_SYSTEM = `You are an expert in Visual Thinking Strategies (VTS) and aesthetic cognition.
-You will receive multiple transcripts labelled LESSON 1, LESSON 2 ... LESSON 10.
-For each lesson return ONLY the dominant mode, one of exactly:
+You will receive multiple transcripts labelled SESSION 1, SESSION 2 ... SESSION 10.
+For each session return ONLY the dominant mode, one of exactly:
 Storyteller, Framer, Archivist, Artist, Integrator
 
-OUTPUT FORMAT, one line per lesson, nothing else:
-LESSON 1: <mode>
-LESSON 2: <mode>
+OUTPUT FORMAT, one line per session, nothing else:
+SESSION 1: <mode>
+SESSION 2: <mode>
 ...
-LESSON 10: <mode>
+SESSION 10: <mode>
 
 No explanation. No punctuation beyond the colon. No extra text.`;
 
@@ -723,6 +755,7 @@ Rules:
 - The tracking line states the single dominant archetype that surfaced in that session.
 - The commentary is 2 to 3 sentences. It names the thinking move using stems such as "You're noticing", "You're constructing a narrative", "You're sensing", "You're raising the question", "You're integrating several ideas". It uses conditional language ("might suggest", "seems to", "could indicate", "appears to"). It mirrors cognition only, never the artwork's meaning, and never praises.
 - Do not label any block with the strings "VTS Commentary" or "Commentary".
+- When referring to an encounter, ALWAYS call it a "session" (e.g. "in this session", "across the sessions"). NEVER use the words "lesson", "image", or "Image N". Refer to a numbered encounter as "Session N" only.
 - If a session has no usable language, skip it.
 
 OUTPUT FORMAT, EXACTLY as below. Use these literal marker tokens. Put each marker on its own line. Never write the marker tokens anywhere inside the quote or reflection text. Output nothing before the first marker or after the last block.
@@ -748,6 +781,7 @@ Rules:
 - In the Emerging Perceptual Capacities paragraph, every conceptual move you describe MUST be immediately followed by its parent archetype in parentheses, in this exact standardized form: (The Storyteller: Narrative Maker), (The Framer: Structure Seeker), (The Archivist: Context Builder), (The Artist: Emotional Explorer), (The Integrator: Reflective Synthesiser).
 - Do NOT rank the range. Two modes is not less developed than five. Range reflects perceptual accessibility, not human value.
 - One final sentence naming absent modes plainly: "The [X], [Y] and [Z] modes did not appear in this sequence."
+- When referring to an encounter, ALWAYS call it a "session" (e.g. "in one session", "across the sessions", "Session 5"). NEVER use the words "lesson", "image", or "Image N".
 - No bullet points, no markdown, no praise, no em dashes.
 
 OUTPUT FORMAT, EXACTLY as below using these literal marker tokens, each on its own line. Never write the marker tokens inside any paragraph text.
@@ -772,6 +806,7 @@ Rules:
 - Second person ("you"), present or future tense.
 - Conditional language throughout: "might", "could", "it seems", "appears to".
 - Reference home base and at least one range mode by name.
+- When referring to an encounter, ALWAYS call it a "session". NEVER use the words "lesson", "image", or "Image N".
 - No bullet points, no markdown, no em dashes, no praise or evaluation.
 - Output only the paragraph body, no heading.`;
 
@@ -811,20 +846,20 @@ const analyzeGrowthInRange = async ({ lessons }) => {
   const unscored = ordered.filter((l, i) => modePerLesson[i] === null);
   if (unscored.length > 0) {
     const scoringInput = unscored
-      .map((l) => `LESSON ${l.lesson_number}:\n${l.transcript_text}`)
+      .map((l) => `SESSION ${l.lesson_number}:\n${l.transcript_text}`)
       .join("\n\n---\n\n");
 
     const rawScores = await callClaude(
       anthropic,
       GIR_SCORING_SYSTEM,
-      `Score each transcript and return the dominant mode for each lesson:\n\n${scoringInput}`,
+      `Score each transcript and return the dominant mode for each session:\n\n${scoringInput}`,
       200,
     );
 
-    // Map "LESSON N: Mode" back to the correct position by lesson_number.
+    // Map "SESSION N: Mode" back to the correct position by lesson_number.
     const scoredByNumber = {};
     for (const line of rawScores.split("\n")) {
-      const match = line.match(/LESSON\s+(\d+):\s*(\w+)/i);
+      const match = line.match(/SESSION\s+(\d+):\s*(\w+)/i);
       if (match) {
         const num = Number(match[1]);
         const mode = match[2].trim();
@@ -852,7 +887,7 @@ const analyzeGrowthInRange = async ({ lessons }) => {
   // Build combined transcript reference for Claude calls.
   // modePerLesson is indexed by position in `ordered`, so use the same index.
   const allTranscripts = ordered
-    .map((l, i) => `LESSON ${l.lesson_number} [Mode: ${modePerLesson[i]}]:\n${l.transcript_text}`)
+    .map((l, i) => `SESSION ${l.lesson_number} [Mode: ${modePerLesson[i]}]:\n${l.transcript_text}`)
     .join("\n\n---\n\n");
 
   // ── Steps 3–6: Run in parallel once home_base + modes are known ────────────
@@ -861,21 +896,21 @@ const analyzeGrowthInRange = async ({ lessons }) => {
     callClaude(
       anthropic,
       withGlobalRules(GIR_QUOTES_SYSTEM),
-      `Modes that appeared: ${appearedModes.join(", ")}\nHome base: ${homeBase}\n\nAll 10 lesson transcripts with mode scores:\n---\n${allTranscripts}\n---\n\nProduce one block per session that contains usable language. Follow the output format exactly.`,
+      `Modes that appeared: ${appearedModes.join(", ")}\nHome base: ${homeBase}\n\nAll 10 session transcripts with mode scores:\n---\n${allTranscripts}\n---\n\nProduce one block per session that contains usable language. Follow the output format exactly.`,
       1400,
     ),
     // Section V: Range Mapping — paragraphs + Emerging Perceptual Capacities
     callClaude(
       anthropic,
       withGlobalRules(GIR_RANGE_SYSTEM),
-      `Home base: ${homeBase}\nRange modes: ${rangeModes.join(", ") || "none"}\nAbsent modes: ${absentModes.join(", ") || "none"}\n\nAll 10 lesson transcripts:\n---\n${allTranscripts}\n---\n\nWrite one paragraph per appeared mode (${appearedModes.join(", ")}), then the Emerging Perceptual Capacities paragraph with parenthetical archetype mapping, then the absent sentence.`,
+      `Home base: ${homeBase}\nRange modes: ${rangeModes.join(", ") || "none"}\nAbsent modes: ${absentModes.join(", ") || "none"}\n\nAll 10 session transcripts:\n---\n${allTranscripts}\n---\n\nWrite one paragraph per appeared mode (${appearedModes.join(", ")}), then the Emerging Perceptual Capacities paragraph with parenthetical archetype mapping, then the absent sentence.`,
       1400,
     ),
     // Section VI: How might this show up?
     callClaude(
       anthropic,
       withGlobalRules(GIR_HOW_SYSTEM),
-      `Home base: ${homeBase}\nRange modes: ${rangeModes.join(", ") || "none"}\n\nAll 10 lesson transcripts:\n---\n${allTranscripts}\n---\n\nWrite the "How might this show up?" paragraph.`,
+      `Home base: ${homeBase}\nRange modes: ${rangeModes.join(", ") || "none"}\n\nAll 10 session transcripts:\n---\n${allTranscripts}\n---\n\nWrite the "How might this show up?" paragraph.`,
       400,
     ),
   ]);

@@ -11,6 +11,7 @@ const {
   updateArchetype,
   deleteArchetype,
   getReportUrl,
+  getMyReport,
 } = require("../controller/archetypes.controller");
 const {
   createArchetypeSchema,
@@ -92,6 +93,10 @@ router.post(
  *         description: List of archetypes
  */
 router.get("/", authenticate, getAllArchetypes);
+
+// Literal "/report" must be registered BEFORE "/:id" so it is not captured as
+// an archetype id (otherwise "report" is parsed as the :id param → NaN).
+router.get("/report", authenticate, getMyReport);
 
 /**
  * @swagger
@@ -279,6 +284,48 @@ router.post("/analyze", authenticate, extendTimeout, analyzeTranscript);
  *       500:
  *         description: Internal server error
  */
+
+/**
+ * @swagger
+ * /api/v1/archetype/report:
+ *   get:
+ *     summary: Get my onboarding archetype report (JSON)
+ *     description: Returns the logged-in user's latest onboarding archetype assessment report (the stored report_json from Ai_Reports).
+ *     tags: [Archetype]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Archetype report retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Archetype report retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     report_id:
+ *                       type: integer
+ *                       example: 12
+ *                     report:
+ *                       $ref: '#/components/schemas/ArchetypeResult'
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: No archetype report found
+ */
+// NOTE: the literal "/report" route is registered earlier (before "/:id") so it
+// is not shadowed by the archetype-by-id route. See above the GET "/:id" route.
 
 router.get("/report/:id", authenticate, getReportUrl);
 
