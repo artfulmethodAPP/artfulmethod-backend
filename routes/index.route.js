@@ -8,6 +8,7 @@ const adminRoutes = require("./admin.routes");
 const meditationRoutes = require("./meditation.routes");
 const reportPreviewRoutes = require("./report-preview.routes");
 const journalRoutes = require("./journal.routes");
+const reportsRoutes = require("./reports.routes");
 const router = express.Router();
 
 router.use("/auth", authRoutes);
@@ -18,6 +19,7 @@ router.use("/courses", courseRoutes);
 router.use("/admin", adminRoutes);
 router.use("/meditations", meditationRoutes);
 router.use("/journal", journalRoutes);
+router.use("/reports", reportsRoutes);
 // TEST ONLY — remove before production
 router.use("/report-preview", reportPreviewRoutes);
 
