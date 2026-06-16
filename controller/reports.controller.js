@@ -28,4 +28,21 @@ const getReportById = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { getAllReports, getReportById };
+/**
+ * DELETE /api/v1/reports/:id?type=archetype|growth_in_range
+ * Soft-deletes a single report so it stops appearing in the list. `type` (from
+ * the list item) is required because report_id is only unique within a type.
+ */
+const deleteReport = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { type } = req.query;
+
+  const result = await ReportsService.deleteReport(req.user.id, id, type);
+
+  return sendSuccess(res, {
+    message: "Report deleted successfully",
+    data: result,
+  });
+});
+
+module.exports = { getAllReports, getReportById, deleteReport };

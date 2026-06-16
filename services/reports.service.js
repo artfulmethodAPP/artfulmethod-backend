@@ -15,7 +15,11 @@ const getAllUserReports = async (userId) => {
       order: [["created_at", "DESC"]],
     }),
     UserCourseProgress.findAll({
-      where: { user_id: userId, status: "completed" },
+      where: {
+        user_id: userId,
+        status: "completed",
+        course_report_deleted_at: null,
+      },
       order: [["completed_at", "DESC"]],
     }),
     Archetype.findAll({ attributes: ["name", "icon_url"] }),
@@ -108,4 +112,44 @@ const getReportById = async (userId, reportId, type) => {
   }
 };
 
-module.exports = { getAllUserReports, getReportById };
+// ─── Soft-delete a Report
+const deleteReport = async (userId, reportId, type) => {
+  const AppError = require("../utils/app-error");
+
+  switch (type) {
+    case "archetype": {
+      const report = await AiReport.findOne({
+        where: { id: reportId, user_id: userId },
+      });
+      if (!report) {
+        throw new AppError("Report not found", 404, "NOT_FOUND");
+      }
+      await report.destroy(); // paranoid → sets deleted_at
+      return { type: "archetype", report_id: Number(reportId) };
+    }
+
+    case "growth_in_range": {
+      const progress = await UserCourseProgress.findOne({
+        where: {
+          course_id: reportId,
+          user_id: userId,
+          course_report_deleted_at: null,
+        },
+      });
+      if (!progress) {
+        throw new AppError("Report not found", 404, "NOT_FOUND");
+      }
+      await progress.update({ course_report_deleted_at: new Date() });
+      return { type: "growth_in_range", report_id: Number(reportId) };
+    }
+
+    default:
+      throw new AppError(
+        "Invalid report type. Use one of: archetype, growth_in_range",
+        400,
+        "VALIDATION_ERROR",
+      );
+  }
+};
+
+module.exports = { getAllUserReports, getReportById, deleteReport };

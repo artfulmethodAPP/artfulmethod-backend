@@ -42,6 +42,13 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.JSON,
         allowNull: true,
       },
+      // Soft-delete marker for the Growth In Range report only. The progress row
+      // itself is kept (it still tracks course completion); a non-null value just
+      // hides the report card from GET /reports.
+      course_report_deleted_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       tableName: "User_Course_Progress",

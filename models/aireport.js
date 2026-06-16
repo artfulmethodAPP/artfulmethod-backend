@@ -29,6 +29,8 @@ module.exports = (sequelize, DataTypes) => {
     tableName: 'Ai_Reports',
     createdAt: 'created_at',
     updatedAt: 'updated_at',
+    deletedAt: 'deleted_at',
+    paranoid: true,
     timestamps: true,
     underscored: true
   });

@@ -1,6 +1,10 @@
 const express = require("express");
 const authenticate = require("../middlewares/authenticate.middleware");
-const { getAllReports, getReportById } = require("../controller/reports.controller");
+const {
+  getAllReports,
+  getReportById,
+  deleteReport,
+} = require("../controller/reports.controller");
 
 const router = express.Router();
 
@@ -123,5 +127,66 @@ router.get("/", authenticate, getAllReports);
  *         description: Report not found
  */
 router.get("/:id", authenticate, getReportById);
+
+/**
+ * @swagger
+ * /api/v1/reports/{id}:
+ *   delete:
+ *     summary: Delete a report (soft delete)
+ *     description: |
+ *       Soft-deletes a single report so it stops appearing in `GET /api/v1/reports`.
+ *       Nothing is permanently removed — the data is retained and only hidden:
+ *       - `archetype` → the Ai_Reports row is marked deleted (`deleted_at`)
+ *       - `growth_in_range` → only the report is hidden (`course_report_deleted_at`);
+ *         the underlying course progress/completion is kept intact.
+ *
+ *       `type` is required because `report_id` is only unique within a report type.
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: report_id from the list (AiReport id for archetype, course id for growth_in_range)
+ *       - in: query
+ *         name: type
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [archetype, growth_in_range]
+ *         description: The report type, taken from the list item
+ *     responses:
+ *       200:
+ *         description: Report deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Report deleted successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     type:
+ *                       type: string
+ *                       enum: [archetype, growth_in_range]
+ *                     report_id:
+ *                       type: integer
+ *       400:
+ *         description: Invalid or missing type
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Report not found
+ */
+router.delete("/:id", authenticate, deleteReport);
 
 module.exports = router;
