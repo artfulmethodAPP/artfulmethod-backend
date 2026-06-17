@@ -1030,6 +1030,18 @@ const analyzeGrowthInRange = async ({ lessons }) => {
       : "All five perceptual modes appeared at least once across the sequence.";
   const overview = `Across ten encounters with progressively more challenging images, ${numberWords[appearedCount] || appearedCount} of the five perceptual modes appeared in your language. Your home base appears to be the ${homeBase}: this is the mode you returned to most consistently, and the one that seems to anchor how you first enter an image. ${rangeList}${absentNarrative}`;
 
+  // Attach each archetype's subtitle (e.g. "Narrative Maker") to evidence and
+  // quotes so the client can render it next to the mode name.
+  const withSubtitle = (mode) => ARCHETYPE_SUBTITLES[mode] ?? null;
+  const evidenceWithSubtitle = evidence.map((e) => ({
+    ...e,
+    subtitle: withSubtitle(e.dominant_archetype),
+  }));
+  const quotesWithSubtitle = quotesAndMeanings.map((q) => ({
+    ...q,
+    subtitle: withSubtitle(q.mode),
+  }));
+
   return {
     home_base: homeBase,
     range_modes: rangeModes,
@@ -1039,10 +1051,9 @@ const analyzeGrowthInRange = async ({ lessons }) => {
       fixed_intro: GIR_FIXED_INTRO,
       // Section III: summary narrative of which modes appeared.
       overview,
-      how_you_see: ARCHETYPE_DESCRIPTIONS[homeBase], // full description of the home base archetype
-      // Section IV: per-session evidence, each with a dominant-archetype tracking line.
-      evidence,
-      quotes_and_meanings: quotesAndMeanings,
+      // Section IV: per-session evidence, each with a dominant-archetype tracking line + subtitle.
+      evidence: evidenceWithSubtitle,
+      quotes_and_meanings: quotesWithSubtitle,
       // Section V: range mapping.
       your_range: yourRange,
       emerging_perceptual_capacities: emergingCapacities,

@@ -808,6 +808,42 @@ const getCourseReport = async (courseId, userId) => {
     return report;
   };
 
+  // Strip fields the client no longer needs. Applied at the API boundary so the
+  // full data is still available for the PDF and for cached reports generated
+  // before these fields were dropped.
+  const stripUnusedFields = (report) => {
+    if (!report) return report;
+    delete report.range_modes;
+    if (report.report) {
+      delete report.report.how_you_see;
+      delete report.report.emerging_perceptual_capacities;
+    }
+    return report;
+  };
+
+  // Recommend a course based on the user's first absent mode. Courses are named
+  // "The {Archetype}" (e.g. "The Integrator"), so we match on that. Returns all
+  // fields the recommendation card needs, with a fresh presigned image URL.
+  const buildRecommendedCourse = async (report) => {
+    const firstAbsent = report?.absent_modes?.[0] ?? null;
+    if (!firstAbsent) return null;
+
+    const recommended = await Course.findOne({
+      where: { name: `The ${firstAbsent}`, is_active: true },
+    });
+    if (!recommended) return null;
+
+    return {
+      course_id: recommended.id,
+      title: recommended.name,
+      subtitle: recommended.subtitle,
+      description: recommended.description,
+      image_url: recommended.image_s3_key
+        ? await getPresignedUrl(recommended.image_s3_key)
+        : null,
+    };
+  };
+
   // 1. Load course + progress + user email in parallel
   const [course, progress, user] = await Promise.all([
     Course.findByPk(courseId),
@@ -848,7 +884,9 @@ const getCourseReport = async (courseId, userId) => {
       ? await getPresignedUrl(progress.course_report_pdf_s3_key)
       : null;
     await withArtworkUrls(report);
-    return { report, pdf_url, prepared_for: user?.name ?? null };
+    const recommended_course = await buildRecommendedCourse(report);
+    stripUnusedFields(report);
+    return { report, pdf_url, prepared_for: user?.name ?? null, recommended_course };
   }
 
   // 3. Fetch all completed attempts for this course, including each lesson's
@@ -1008,7 +1046,9 @@ const getCourseReport = async (courseId, userId) => {
   }
 
   await withArtworkUrls(girResult);
-  return { report: girResult, pdf_url, prepared_for: user?.name ?? null };
+  const recommended_course = await buildRecommendedCourse(girResult);
+  stripUnusedFields(girResult);
+  return { report: girResult, pdf_url, prepared_for: user?.name ?? null, recommended_course };
 };
 
 const getCourseReportPdf = async (courseId, userId) => {
