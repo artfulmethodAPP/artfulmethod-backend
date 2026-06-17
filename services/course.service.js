@@ -792,6 +792,22 @@ const getCourseReport = async (courseId, userId) => {
   const { generateReportPdf, uploadReportPdfToS3 } = require("./pdf.service");
   const { UserPromptResponse } = require("../models");
 
+  // The report JSON is cached, so artwork images are stored as S3 keys and the
+  // presigned URL (1h expiry) is generated fresh on every read. Mutates the
+  // report in place, adding `artwork_url` to each evidence item.
+  const withArtworkUrls = async (report) => {
+    const evidence = report?.report?.evidence;
+    if (!Array.isArray(evidence)) return report;
+    await Promise.all(
+      evidence.map(async (e) => {
+        e.artwork_url = e.artwork_image_s3_key
+          ? await getPresignedUrl(e.artwork_image_s3_key)
+          : null;
+      }),
+    );
+    return report;
+  };
+
   // 1. Load course + progress + user email in parallel
   const [course, progress, user] = await Promise.all([
     Course.findByPk(courseId),
@@ -831,14 +847,28 @@ const getCourseReport = async (courseId, userId) => {
     const pdf_url = progress.course_report_pdf_s3_key
       ? await getPresignedUrl(progress.course_report_pdf_s3_key)
       : null;
-     console.log(user); 
+    await withArtworkUrls(report);
     return { report, pdf_url, prepared_for: user?.name ?? null };
   }
 
-  // 3. Fetch all completed attempts for this course
+  // 3. Fetch all completed attempts for this course, including each lesson's
+  //    artwork details so the report evidence can identify the artwork the user
+  //    was viewing in that session ("See Artwork" modal).
   const attempts = await UserLessonAttempt.findAll({
     where: { user_id: userId, course_id: courseId, status: "completed" },
     order: [["course_lesson_id", "ASC"]],
+    include: [
+      {
+        model: CourseLesson,
+        attributes: ["id"],
+        include: [
+          {
+            model: LessonContent,
+            attributes: ["artwork_title", "artwork_info", "artist_name", "years", "image_s3_key"],
+          },
+        ],
+      },
+    ],
   });
 
   if (attempts.length === 0) {
@@ -867,10 +897,16 @@ const getCourseReport = async (courseId, userId) => {
       .sort((a, b) => a.prompt_number - b.prompt_number)
       .map((r) => r.transcript_text)
       .join("\n\n---\n\n");
+    const content = attempt.CourseLesson?.LessonContent;
     return {
       lesson_number: idx + 1,
       transcript_text: transcript,
       precomputed_mode: attempt.report_json?.archetype?.name ?? null,
+      artwork_title: content?.artwork_title ?? null,
+      artwork_info: content?.artwork_info ?? null,
+      artist_name: content?.artist_name ?? null,
+      years: content?.years ?? null,
+      artwork_image_s3_key: content?.image_s3_key ?? null,
     };
   });
 
@@ -971,6 +1007,7 @@ const getCourseReport = async (courseId, userId) => {
     });
   }
 
+  await withArtworkUrls(girResult);
   return { report: girResult, pdf_url, prepared_for: user?.name ?? null };
 };
 

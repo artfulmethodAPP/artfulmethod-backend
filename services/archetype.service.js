@@ -920,6 +920,20 @@ const analyzeGrowthInRange = async ({ lessons }) => {
   // [[END]]), so a reflection that contains the word "session" can never be
   // mistaken for a new block. Markers are stripped from the captured text.
   const evidence = [];
+  // Look up each session's artwork by lesson_number so evidence can name the
+  // artwork the user was viewing (powers the "See Artwork" modal).
+  const artworkBySession = {};
+  for (const l of ordered) {
+    artworkBySession[l.lesson_number] = {
+      artwork_title: l.artwork_title ?? null,
+      artwork_info: l.artwork_info ?? null,
+      artist_name: l.artist_name ?? null,
+      years: l.years ?? null,
+      // Store the S3 key, not a presigned URL — the report JSON is cached, so the
+      // URL is generated fresh on every read (see course.service report flow).
+      artwork_image_s3_key: l.artwork_image_s3_key ?? null,
+    };
+  }
   // One block per [[SESSION]] ... up to [[END]] (or the next [[SESSION]]).
   const blockRe = /\[\[SESSION\]\]([\s\S]*?)(?:\[\[END\]\]|(?=\[\[SESSION\]\])|$)/gi;
   const field = (block, tag) => {
@@ -935,11 +949,20 @@ const analyzeGrowthInRange = async ({ lessons }) => {
     const quote = field(block, "QUOTE").replace(/^["'“”]+|["'“”]+$/g, "").trim();
     const reflection = field(block, "REFLECTION");
     if (quote) {
+      const sn = sessionNum ? Number(sessionNum) : null;
+      const artwork = (sn && artworkBySession[sn]) || {
+        artwork_title: null,
+        artwork_info: null,
+        artist_name: null,
+        years: null,
+        artwork_image_s3_key: null,
+      };
       evidence.push({
-        session_number: sessionNum ? Number(sessionNum) : null,
+        session_number: sn,
         dominant_archetype: dominant,
         quote,
         reflection,
+        ...artwork,
       });
     }
   }

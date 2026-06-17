@@ -1,7 +1,8 @@
 "use strict";
 
-const { UserLessonAttempt, LessonContent, UserPromptResponse, CourseLesson } = require("../models");
+const { UserLessonAttempt, UserPromptResponse, LessonContent, CourseLesson, sequelize } = require("../models");
 const { getPresignedUrl } = require("./s3.service");
+const AppError = require("../utils/app-error");
 
 /**
  * Returns all completed lesson sessions for a user.
@@ -43,7 +44,7 @@ const getJournalEntries = async (userId) => {
         id:               r.id,
         prompt_number:    r.prompt_number,
         transcript_text:  r.transcript_text,
-      }))[0];
+      }));
 
       return {
         id:                attempt.id,
@@ -114,4 +115,63 @@ const getJournalEntryById = async (userId, entryId) => {
   };
 };
 
-module.exports = { getJournalEntries, getJournalEntryById };
+/**
+ * Updates the transcript text of one or more prompt responses for a journal entry.
+ * Verifies the entry belongs to the user, and that every submitted prompt response
+ * id belongs to that entry, before applying updates inside a transaction.
+ * Returns the refreshed entry.
+ */
+const updateEntryPromptResponses = async (userId, entryId, promptResponses) => {
+  const attempt = await UserLessonAttempt.findOne({
+    where: { id: entryId, user_id: userId, status: "completed" },
+    attributes: ["id"],
+  });
+
+  if (!attempt) {
+    throw new AppError("Journal entry not found", 404, "NOT_FOUND");
+  }
+
+  // Fetch the prompt responses the client wants to update, scoped to this entry,
+  // so we never touch responses belonging to another entry/user.
+  const ids = promptResponses.map((r) => r.id);
+  const existing = await UserPromptResponse.findAll({
+    where: { id: ids, user_lesson_attempt_id: entryId },
+    attributes: ["id"],
+  });
+
+  const existingIds = new Set(existing.map((r) => r.id));
+  const invalidIds = ids.filter((id) => !existingIds.has(id));
+
+  if (invalidIds.length > 0) {
+    throw new AppError(
+      `Prompt response(s) not found for this entry: ${invalidIds.join(", ")}`,
+      404,
+      "NOT_FOUND",
+    );
+  }
+
+  await sequelize.transaction(async (transaction) => {
+    await Promise.all(
+      promptResponses.map((r) =>
+        UserPromptResponse.update(
+          { transcript_text: r.transcript_text },
+          { where: { id: r.id, user_lesson_attempt_id: entryId }, transaction },
+        ),
+      ),
+    );
+  });
+
+  const updated = await UserPromptResponse.findAll({
+    where: { user_lesson_attempt_id: entryId },
+    attributes: ["id", "prompt_number", "transcript_text"],
+    order: [["prompt_number", "ASC"]],
+  });
+
+  return updated.map((r) => ({
+    id: r.id,
+    prompt_number: r.prompt_number,
+    transcript_text: r.transcript_text,
+  }));
+};
+
+module.exports = { getJournalEntries, getJournalEntryById, updateEntryPromptResponses };

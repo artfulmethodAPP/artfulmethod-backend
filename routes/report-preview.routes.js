@@ -38,6 +38,12 @@ const DUMMY_GIR = {
         quote: "It looks like she is about to leave and never come back.",
         reflection:
           "You're constructing a narrative from the gesture. The reading seems to enter the scene through story, giving the figure an intention and a future.",
+        artwork_title: "The Birthday",
+        artwork_info:
+          "A floating embrace fills a small domestic room, the lovers lifted off the ground in a moment of weightless joy.",
+        artist_name: "Marc Chagall",
+        years: "1915",
+        artwork_url: "https://example.com/artwork/the-birthday.jpg",
       },
       {
         session_number: 4,
@@ -45,6 +51,12 @@ const DUMMY_GIR = {
         quote: "The way the lines lead to the corner makes it feel deliberate.",
         reflection:
           "You're grounding your idea in what you see. Your attention appears to move toward how the composition is built before naming what it means.",
+        artwork_title: "Composition VIII",
+        artwork_info:
+          "Geometric forms, lines, and circles are arranged across a pale ground in a balance of tension and order.",
+        artist_name: "Wassily Kandinsky",
+        years: "1923",
+        artwork_url: "https://example.com/artwork/composition-viii.jpg",
       },
       {
         session_number: 7,
@@ -52,6 +64,12 @@ const DUMMY_GIR = {
         quote: "There is something heavy and quiet in the whole thing.",
         reflection:
           "You're sensing an emotional tone. The mood seems to arrive ahead of explanation, and you appear to stay with it rather than resolve it.",
+        artwork_title: "The Sea of Ice",
+        artwork_info:
+          "Slabs of broken ice pile upward against a cold sky, a wrecked ship barely visible beneath them.",
+        artist_name: "Caspar David Friedrich",
+        years: "1824",
+        artwork_url: "https://example.com/artwork/the-sea-of-ice.jpg",
       },
       {
         session_number: 9,
@@ -59,6 +77,12 @@ const DUMMY_GIR = {
         quote: "This reminds me of those old Dutch winter scenes.",
         reflection:
           "You're linking this to a tradition. The work seems to be placed within a wider history of similar images you have encountered.",
+        artwork_title: "Hunters in the Snow",
+        artwork_info:
+          "Hunters trudge home over a ridge above a frozen valley where villagers skate on the ponds below.",
+        artist_name: "Pieter Bruegel the Elder",
+        years: "1565",
+        artwork_url: "https://example.com/artwork/hunters-in-the-snow.jpg",
       },
     ],
     quotes_and_meanings: [],
