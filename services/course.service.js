@@ -69,7 +69,7 @@ const getAllCourses = async (userId) => {
   }
 
   const result = await Promise.all(
-    courses.map(async (c, index) => {
+    courses.map(async (c) => {
       const { image_s3_key, ...plain } = c.toJSON();
       plain.image_url = image_s3_key
         ? await getPresignedUrl(image_s3_key)
@@ -78,21 +78,9 @@ const getAllCourses = async (userId) => {
 
       const progress = progressMap.get(c.id);
 
-      // Home base (index 0) is always unlocked; subsequent courses require previous completed
-      const isFirst = index === 0;
-      let isLocked = false;
-      if (!isFirst) {
-        const prevCourse = courses[index - 1];
-        const prevProgress = progressMap.get(prevCourse.id);
-        isLocked = !prevProgress || prevProgress.status !== "completed";
-      }
-
+      // Courses are no longer locked — any course can be started at any time.
       plain.user_progress = {
-        status: isLocked
-          ? "locked"
-          : progress
-            ? progress.status
-            : "not_started",
+        status: progress ? progress.status : "not_started",
         lessons_completed: progress ? progress.lessons_completed : 0,
         total_lessons: lessonCountMap.get(c.id) ?? 0,
       };
@@ -111,42 +99,7 @@ const getCourseById = async (courseId, userId) => {
 
   if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
 
-  // ── Course-level lock gate (mirrors getAllCourses ordering) ────────────────
-  // A course is unlocked only if it is the home-base course (shown first) or the
-  // course immediately preceding it in that ordering has been completed.
-  const numericCourseId = Number(courseId);
-  const [user, allCourses, allProgress] = await Promise.all([
-    User.findByPk(userId, { attributes: ["id", "home_base_course_id"] }),
-    Course.findAll({ where: { is_active: true }, order: [["sort_order", "ASC"]] }),
-    UserCourseProgress.findAll({ where: { user_id: userId } }),
-  ]);
-
-  const homeBaseCourseId = user ? user.home_base_course_id : null;
-  const progressMap = new Map(allProgress.map((p) => [p.course_id, p]));
-
-  // Reorder: home base course first, then the rest in sort_order (same as getAllCourses)
-  const ordered = [...allCourses];
-  if (homeBaseCourseId) {
-    const homeIndex = ordered.findIndex((c) => c.id === homeBaseCourseId);
-    if (homeIndex > 0) {
-      const [homeCourse] = ordered.splice(homeIndex, 1);
-      ordered.unshift(homeCourse);
-    }
-  }
-
-  const orderIndex = ordered.findIndex((c) => c.id === numericCourseId);
-  if (orderIndex > 0) {
-    const prevCourse = ordered[orderIndex - 1];
-    const prevProgress = progressMap.get(prevCourse.id);
-    if (!prevProgress || prevProgress.status !== "completed") {
-      throw new AppError(
-        "Complete the previous course before accessing this one",
-        403,
-        "COURSE_LOCKED",
-      );
-    }
-  }
-
+  // Courses are no longer locked — any course can be accessed at any time.
   const { image_s3_key, CourseLessons: lessons, ...plain } = course.toJSON();
   plain.image_url = image_s3_key ? await getPresignedUrl(image_s3_key) : null;
 
@@ -300,46 +253,14 @@ const createLessonContent = async (lessonId, data) => {
 };
 
 const getLessonContent = async (lessonId, userId) => {
-  // Load lesson + user + all courses + progress in parallel to check lock
-  const [lesson, user, allCourses, allProgress] = await Promise.all([
-    CourseLesson.findByPk(lessonId),
-    User.findByPk(userId, { attributes: ["id", "home_base_course_id"] }),
-    Course.findAll({
-      where: { is_active: true },
-      order: [["sort_order", "ASC"]],
-    }),
-    UserCourseProgress.findAll({ where: { user_id: userId } }),
-  ]);
+  const lesson = await CourseLesson.findByPk(lessonId);
 
   if (!lesson) throw new AppError("Session not found", 404, "NOT_FOUND");
 
   const courseId = lesson.course_id;
-  const course = allCourses.find((c) => c.id === courseId);
-  if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
 
-  // ── Cross-course lock (same logic as startLesson) ──────────────────────────
-  const homeBaseCourseId = user?.home_base_course_id ?? null;
-  const orderedCourses = [...allCourses];
-  if (homeBaseCourseId) {
-    const homeIndex = orderedCourses.findIndex(
-      (c) => c.id === homeBaseCourseId,
-    );
-    if (homeIndex > 0) {
-      const [homeCourse] = orderedCourses.splice(homeIndex, 1);
-      orderedCourses.unshift(homeCourse);
-    }
-  }
-
-  const progressMap = new Map(allProgress.map((p) => [p.course_id, p]));
-  const courseIndex = orderedCourses.findIndex((c) => c.id === courseId);
-
-  if (courseIndex > 0) {
-    const prevCourse = orderedCourses[courseIndex - 1];
-    const prevProgress = progressMap.get(prevCourse.id);
-    if (!prevProgress || prevProgress.status !== "completed") {
-      throw new AppError("This course is locked", 403, "COURSE_LOCKED");
-    }
-  }
+  // Courses are no longer locked — any course can be accessed at any time.
+  // Lessons remain sequential within a course (lesson N requires N-1 completed).
 
   // ── Sequential lesson lock ─────────────────────────────────────────────────
   if (lesson.sort_order > 1) {
@@ -396,56 +317,18 @@ const updateLessonContent = async (lessonId, data) => {
 // ─── Start Lesson (with cross-course + sequential lesson lock) ───────────────
 
 const startLesson = async (userId, courseId, lessonId) => {
-  // Load user, all courses, and all progress in parallel
-  const [user, allCourses, allProgress, lesson] = await Promise.all([
-    User.findByPk(userId, { attributes: ["id", "home_base_course_id"] }),
-    Course.findAll({
-      where: { is_active: true },
-      order: [["sort_order", "ASC"]],
-    }),
-    UserCourseProgress.findAll({ where: { user_id: userId } }),
+  // Validate the course exists and the lesson belongs to it.
+  const [course, lesson] = await Promise.all([
+    Course.findOne({ where: { id: courseId, is_active: true } }),
     CourseLesson.findOne({ where: { id: lessonId, course_id: courseId } }),
   ]);
 
-  // Validate target lesson exists in the requested course
-  const course = allCourses.find((c) => c.id === Number(courseId));
   if (!course) throw new AppError("Course not found", 404, "NOT_FOUND");
   if (!lesson)
     throw new AppError("Session not found in this course", 404, "NOT_FOUND");
 
-  // ── Cross-course lock ────────────────────────────────────────────────────────
-  // Build the user-facing course order: home base first, then rest by sort_order.
-  // This mirrors getAllCourses so the lock logic is consistent with what the UI shows.
-  const homeBaseCourseId = user?.home_base_course_id ?? null;
-  const orderedCourses = [...allCourses];
-  if (homeBaseCourseId) {
-    const homeIndex = orderedCourses.findIndex(
-      (c) => c.id === homeBaseCourseId,
-    );
-    if (homeIndex > 0) {
-      const [homeCourse] = orderedCourses.splice(homeIndex, 1);
-      orderedCourses.unshift(homeCourse);
-    }
-  }
-
-  const progressMap = new Map(allProgress.map((p) => [p.course_id, p]));
-  const courseIndex = orderedCourses.findIndex(
-    (c) => c.id === Number(courseId),
-  );
-
-  // Position 0 (home base or first in order) is always unlocked.
-  // Any subsequent course requires the previous one to be completed.
-  if (courseIndex > 0) {
-    const prevCourse = orderedCourses[courseIndex - 1];
-    const prevProgress = progressMap.get(prevCourse.id);
-    if (!prevProgress || prevProgress.status !== "completed") {
-      throw new AppError(
-        "You must complete the previous course before starting this one",
-        403,
-        "COURSE_LOCKED",
-      );
-    }
-  }
+  // Courses are no longer locked — any course can be started at any time.
+  // Lessons remain sequential within a course (lesson N requires N-1 completed).
 
   // ── Sequential lesson lock ───────────────────────────────────────────────────
   // Lesson at sort_order 1 is always unlocked within its course.
@@ -1251,19 +1134,32 @@ const getHomeDashboard = async (userId) => {
     UserLessonAttempt.count({
       where: { user_id: userId, status: "completed" },
     }),
+    // paranoid: false so soft-deleted reports are still seen here — the
+    // assessment can be "completed" even if the user later deleted the report.
     AiReport.findOne({
       where: { user_id: userId },
-      attributes: ["id"],
+      attributes: ["id", "deleted_at"],
       order: [["created_at", "DESC"]],
+      paranoid: false,
     }),
   ]);
 
   if (!user) throw new AppError("User not found", 404, "NOT_FOUND");
 
+  // The assessment counts as completed if a report was ever generated, even if
+  // it has since been soft-deleted. A deleted report is just no longer viewable.
+  const assessmentCompleted = !!aiReport;
+  const reportDeleted = !!(aiReport && aiReport.deleted_at);
+
   return {
     name: user.name,
-    assessment_completed: !!aiReport,
-    assessment_report_id: aiReport ? aiReport.id : null,
+    assessment_completed: assessmentCompleted,
+    // Only expose an id the user can open; deleted reports return null.
+    assessment_report_id: aiReport && !aiReport.deleted_at ? aiReport.id : null,
+    assessment_report_deleted: reportDeleted,
+    assessment_report_message: reportDeleted
+      ? "Your archetype report has been deleted and is no longer available."
+      : null,
     current_streak: user.streak_count,
     longest_streak: user.longest_streak,
     last_activity_date: user.last_activity_date,

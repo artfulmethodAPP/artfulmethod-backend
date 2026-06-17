@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: "https://mai-ver-introduction-stereo.trycloudflare.com",
+        url: "v",
         description: "Cloudflare Tunnel",
       },
       {

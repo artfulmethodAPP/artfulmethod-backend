@@ -104,50 +104,16 @@ const register = async ({
   // Check for any existing record with this email (including soft-deleted ones)
   const existingUser = await User.findOne({ where: { email } });
   if (existingUser) {
-    if (!existingUser.deleted_at) {
-      // Active account — block re-registration
-      throw new AppError("User already exists", 409, "CONFLICT");
+    if (existingUser.deleted_at) {
+      // Deleted account — block re-registration with this email (like most apps).
+      throw new AppError(
+        "This account has been deleted and cannot be registered again. Please contact support if you believe this is a mistake.",
+        409,
+        "ACCOUNT_DELETED",
+      );
     }
-    // Soft-deleted account — revive the same row instead of creating a duplicate.
-    // Reset all fields, clear deleted_at, and issue a fresh OTP.
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const otp_code = generateOTP();
-    const otp_expires_at = new Date(Date.now() + 5 * 60 * 1000);
-
-    await UserToken.destroy({ where: { user_id: existingUser.id } });
-
-    await existingUser.update({
-      password: hashedPassword,
-      name: name || null,
-      dob: dob || null,
-      gender: gender || null,
-      goal: goal || null,
-      art_frequency: art_frequency || null,
-      source: source || null,
-      ...(timezone ? { timezone } : {}),
-      otp_code,
-      otp_expires_at,
-      is_verified: false,
-      streak_count: 0,
-      last_activity_date: null,
-      deleted_at: null,
-    });
-
-    // Fire-and-forget: don't block the response on SMTP. The .catch() is
-    // required — without it a failed send becomes an unhandled rejection that
-    // can crash the process. The failure is already recorded in EmailLog.
-    sendOTPEmail(email, otp_code, existingUser.id).catch((err) =>
-      console.error("[register] background OTP email failed:", err.message),
-    );
-
-    return {
-      id: existingUser.id,
-      email: existingUser.email,
-      name: existingUser.name,
-      dob: existingUser.dob,
-      created_at: existingUser.created_at,
-      email_reports_enabled: existingUser.email_reports_enabled,
-    };
+    // Active account — block re-registration
+    throw new AppError("User already exists", 409, "CONFLICT");
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -553,8 +519,17 @@ const hardDeleteAccount = async (userId) => {
 };
 
 const checkEmail = async (email) => {
-  const user = await User.findOne({ where: { email, deleted_at: null } });
+  // Look up including soft-deleted rows so this mirrors register()'s rule and
+  // the user is blocked up front instead of after filling out the signup form.
+  const user = await User.findOne({ where: { email } });
   if (user) {
+    if (user.deleted_at) {
+      throw new AppError(
+        "This account has been deleted and cannot be registered again. Please contact support if you believe this is a mistake.",
+        409,
+        "ACCOUNT_DELETED",
+      );
+    }
     throw new AppError("This email is already in use", 409, "CONFLICT");
   }
   return { available: true };
