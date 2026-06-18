@@ -22,7 +22,7 @@ const findUser = async (userId) => {
     attributes: [
       "id", "name", "email", "role", "is_verified",
       "dob", "gender", "goal", "art_frequency", "source",
-      "streak_count", "last_activity_date",
+      "streak_count", "last_activity_date", "timezone",
       "email_reports_enabled", "created_at", "deleted_at",
       "home_base_course_id",
     ],
@@ -229,6 +229,7 @@ const getUserDetail = async (userId) => {
       source: user.source,
       streak_count: user.streak_count,
       last_activity_date: user.last_activity_date,
+      timezone: user.timezone,
       email_reports_enabled: user.email_reports_enabled,
       created_at: user.created_at,
       deleted_at: user.deleted_at,

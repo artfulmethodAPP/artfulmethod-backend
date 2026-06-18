@@ -102,37 +102,57 @@ const startLesson = asyncHandler(async (req, res) => {
   });
 });
 
-// ─── Complete Lesson ──────────────────────────────────────────────────────────
-
-const completeLesson = asyncHandler(async (req, res) => {
+// ─── Transcribe Lesson Prompts (API 1 of 2) ──────────────────────────────────
+//
+// Transcribes the 3 prompts (audio via ElevenLabs, or plain text) and returns
+// the transcripts for the "edit your transcript" screen. The micro-report is
+// generated separately by completeLesson, keeping that request fast.
+//
+// Accepted multipart fields (same as before):
+//   audio_1 / audio_2 / audio_3  → binary file (priority over text of same number)
+//   text_1  / text_2  / text_3   → plain text string
+const transcribeLessonPrompts = asyncHandler(async (req, res) => {
   const { attemptId } = req.params;
   const userId = req.user.id;
 
-  // Build a per-prompt descriptor for each of the 3 prompts.
-  // Each prompt can independently be an audio file OR plain text.
-  //
-  // Accepted multipart fields:
-  //   audio_1 / audio_2 / audio_3  → binary file  (takes priority over text field of same number)
-  //   text_1  / text_2  / text_3   → plain text string
-  //
-  // Result: prompts = [
-  //   { promptNumber: 1, file: <multerFile|null>, text: <string|null> },
-  //   { promptNumber: 2, file: <multerFile|null>, text: <string|null> },
-  //   { promptNumber: 3, file: <multerFile|null>, text: <string|null> },
-  // ]
-
-  const namedFiles = (req.files && typeof req.files === "object" && !Array.isArray(req.files))
-    ? req.files
-    : {};
+  const namedFiles =
+    req.files && typeof req.files === "object" && !Array.isArray(req.files)
+      ? req.files
+      : {};
   const b = req.body || {};
 
   const prompts = [1, 2, 3].map((n) => {
     const fileArr = namedFiles[`audio_${n}`];
     const file = fileArr && fileArr.length ? fileArr[0] : null;
-    // Text falls back: text_N first, then audio_N body field (plain text sent as multipart text)
     const text = (!file && (b[`text_${n}`] || b[`audio_${n}`])) || null;
     return { promptNumber: n, file, text };
   });
+
+  const result = await CourseService.transcribeLessonPrompts(attemptId, userId, {
+    prompts,
+  });
+
+  return sendSuccess(res, {
+    message: "Prompts transcribed successfully",
+    data: result,
+  });
+});
+
+// ─── Complete Lesson (API 2 of 2) ─────────────────────────────────────────────
+//
+// Receives the 3 final (possibly edited) transcripts as text, runs the archetype
+// analysis, and returns the session micro-report. No audio here.
+//
+// Accepted body fields: text_1 / text_2 / text_3  (JSON or form fields)
+const completeLesson = asyncHandler(async (req, res) => {
+  const { attemptId } = req.params;
+  const userId = req.user.id;
+  const b = req.body || {};
+
+  const prompts = [1, 2, 3].map((n) => ({
+    promptNumber: n,
+    text: b[`text_${n}`] ?? null,
+  }));
 
   const [result, streak] = await Promise.all([
     CourseService.completeLesson(attemptId, userId, { prompts }),
@@ -254,6 +274,7 @@ module.exports = {
   getLessons,
   updateLesson,
   startLesson,
+  transcribeLessonPrompts,
   completeLesson,
   getLessonReport,
   getCourseReport,

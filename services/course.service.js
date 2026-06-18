@@ -372,31 +372,29 @@ const startLesson = async (userId, courseId, lessonId) => {
   return attemptPlain;
 };
 
-// ─── Complete Lesson — mixed audio+text per prompt, archetype analysis, S3 ───
+// ─── Transcribe Lesson Prompts (API 1 of 2) ──────────────────────────────────
+//
+// Handles the slow, external-API part of a session: transcribe each audio prompt
+// via ElevenLabs and upload the audio to S3. Saves the resulting transcripts as
+// UserPromptResponse rows and RETURNS them so the UI can show the "edit your
+// transcript" screen. Does NOT run the archetype analysis — that is the separate
+// /complete step, which keeps the report request fast and avoids gateway timeouts.
 //
 // prompts = [
 //   { promptNumber: 1, file: <multerMemoryFile|null>, text: <string|null> },
-//   { promptNumber: 2, file: <multerMemoryFile|null>, text: <string|null> },
-//   { promptNumber: 3, file: <multerMemoryFile|null>, text: <string|null> },
-// ]
-//
-// Each prompt is handled independently:
-//   - file present  → transcribe via ElevenLabs + upload audio to S3
-//   - text present  → use text directly, no audio
-//   - neither       → validation error for that prompt
+//   ...
+// ]  — each prompt independently audio (transcribe) or text (used directly).
 //
 // S3 audio key pattern (searchable by user / lesson / attempt / prompt):
 //   courses/audio/user_{userId}/lesson_{lessonId}/attempt_{attemptId}/prompt_{n}.<ext>
 //
-const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
-  const { analyzeLessonArchetype } = require("./archetype.service");
+const transcribeLessonPrompts = async (attemptId, userId, { prompts = [] } = {}) => {
   const { PutObjectCommand } = require("@aws-sdk/client-s3");
-  const { Op } = require("sequelize");
-  const { randomUUID } = require("crypto");
   const s3 = require("../config/s3.config");
   const axios = require("axios");
   const FormData = require("form-data");
   const path = require("path");
+  const { UserPromptResponse } = require("../models");
 
   // Validate: must have exactly 3 prompts, each with either a file or text
   if (!Array.isArray(prompts) || prompts.length !== 3) {
@@ -416,19 +414,15 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     }
   }
 
-  // 1. Load + validate attempt + fetch user email and lesson title in parallel
-  const [attempt, user] = await Promise.all([
-    UserLessonAttempt.findOne({ where: { id: attemptId, user_id: userId } }),
-    User.findByPk(userId, { attributes: ["id", "email", "name"] }),
-  ]);
+  const attempt = await UserLessonAttempt.findOne({
+    where: { id: attemptId, user_id: userId },
+  });
   if (!attempt)
     throw new AppError("Session attempt not found", 404, "NOT_FOUND");
   if (attempt.status === "completed")
     throw new AppError("Session already completed", 409, "CONFLICT");
 
   const lessonId = attempt.course_lesson_id;
-
-  // ElevenLabs transcription helper
   const apiKey = process.env.ELEVENLABS_API_KEY;
 
   const transcribeFile = async (file) => {
@@ -469,7 +463,6 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
   const uploadAudio = async (file, promptNumber) => {
     const ext =
       path.extname(file.originalname || ".webm").replace(/^\./, "") || "webm";
-    // Pattern: courses/audio/user_{userId}/lesson_{lessonId}/attempt_{attemptId}/prompt_{n}.ext
     const key = `courses/audio/user_${userId}/lesson_${lessonId}/attempt_${attemptId}/prompt_${promptNumber}.${ext}`;
     await s3.send(
       new PutObjectCommand({
@@ -482,30 +475,24 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
     return key;
   };
 
-  // 2. Process all 3 prompts in parallel — each independently audio or text
+  // Process all 3 prompts in parallel — each independently audio or text
   const promptResults = await Promise.all(
     prompts.map(async ({ promptNumber, file, text }) => {
       if (file) {
-        // Audio prompt: transcribe + upload simultaneously
         const [transcript, audioKey] = await Promise.all([
           transcribeFile(file),
           uploadAudio(file, promptNumber),
         ]);
         return { promptNumber, transcript, audioKey };
-      } else {
-        // Text prompt: use directly, no audio
-        return { promptNumber, transcript: text.trim(), audioKey: null };
       }
+      return { promptNumber, transcript: text.trim(), audioKey: null };
     }),
   );
 
-  // Sort by promptNumber to ensure consistent order
   promptResults.sort((a, b) => a.promptNumber - b.promptNumber);
 
-  const transcripts = promptResults.map((r) => r.transcript);
-
-  // 3. Save prompt responses (upsert by attempt + prompt_number)
-  const { UserPromptResponse } = require("../models");
+  // Save prompt responses (upsert by attempt + prompt_number) so the transcripts
+  // are persisted even before the user finishes editing / completing.
   await Promise.all(
     promptResults.map(({ promptNumber, transcript, audioKey }) =>
       UserPromptResponse.upsert({
@@ -516,6 +503,92 @@ const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
         submitted_at: new Date(),
       }),
     ),
+  );
+
+  // Return the transcripts for the "edit your transcript" screen.
+  return {
+    attempt_id: attempt.id,
+    prompts: promptResults.map(({ promptNumber, transcript }) => ({
+      prompt_number: promptNumber,
+      transcript_text: transcript,
+    })),
+  };
+};
+
+// ─── Complete Lesson (API 2 of 2) — analyze final transcripts, micro-report ──
+//
+// Lightweight: receives the 3 final (possibly edited) transcripts as text, runs
+// the Session Read archetype analysis, and generates + caches the micro-report.
+// No audio / ElevenLabs here, so the request stays well under any gateway timeout.
+//
+// prompts = [ { promptNumber: 1, text: "..." }, ... ]  (exactly 3, text required)
+//
+const completeLesson = async (attemptId, userId, { prompts = [] } = {}) => {
+  const { analyzeLessonArchetype } = require("./archetype.service");
+  const { PutObjectCommand } = require("@aws-sdk/client-s3");
+  const { Op } = require("sequelize");
+  const { randomUUID } = require("crypto");
+  const s3 = require("../config/s3.config");
+  const { UserPromptResponse } = require("../models");
+
+  // Validate: exactly 3 prompts, each with non-empty text
+  if (!Array.isArray(prompts) || prompts.length !== 3) {
+    throw new AppError(
+      "Exactly 3 prompt responses are required",
+      400,
+      "VALIDATION_ERROR",
+    );
+  }
+  for (const p of prompts) {
+    if (!p.text || !p.text.trim()) {
+      throw new AppError(
+        `Prompt ${p.promptNumber} requires text (text_${p.promptNumber})`,
+        400,
+        "VALIDATION_ERROR",
+      );
+    }
+  }
+
+  // 1. Load + validate attempt
+  const attempt = await UserLessonAttempt.findOne({
+    where: { id: attemptId, user_id: userId },
+  });
+  if (!attempt)
+    throw new AppError("Session attempt not found", 404, "NOT_FOUND");
+  if (attempt.status === "completed")
+    throw new AppError("Session already completed", 409, "CONFLICT");
+
+  const lessonId = attempt.course_lesson_id;
+
+  // 2. Persist the final (edited) transcripts. Updating (not upserting) the
+  //    existing row leaves any audio captured by /transcribe untouched; if the
+  //    row doesn't exist yet, create a text-only one.
+  const promptResults = [...prompts]
+    .map((p) => ({ promptNumber: p.promptNumber, transcript: p.text.trim() }))
+    .sort((a, b) => a.promptNumber - b.promptNumber);
+
+  const transcripts = promptResults.map((r) => r.transcript);
+
+  await Promise.all(
+    promptResults.map(async ({ promptNumber, transcript }) => {
+      const [count] = await UserPromptResponse.update(
+        { transcript_text: transcript, submitted_at: new Date() },
+        {
+          where: {
+            user_lesson_attempt_id: attemptId,
+            prompt_number: promptNumber,
+          },
+        },
+      );
+      if (count === 0) {
+        await UserPromptResponse.create({
+          user_lesson_attempt_id: attemptId,
+          prompt_number: promptNumber,
+          transcript_text: transcript,
+          submitted_at: new Date(),
+        });
+      }
+    }),
   );
 
   // 3. Run lesson Session Read analysis — passes all 3 transcripts separately
@@ -1179,6 +1252,7 @@ module.exports = {
   getLessonContent,
   updateLessonContent,
   startLesson,
+  transcribeLessonPrompts,
   completeLesson,
   getLessonReport,
   getCourseReport,

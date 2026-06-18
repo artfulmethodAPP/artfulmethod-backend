@@ -32,6 +32,13 @@ const promptsJsonFieldOptional = z.preprocess(
   z.array(promptSchema).min(3, "3 prompts are required").max(3, "Maximum 3 prompts allowed"),
 ).optional();
 
+// Body for completing a lesson (API 2): the 3 final, edited transcripts as text.
+const completeLessonSchema = z.object({
+  text_1: z.string().trim().min(1, "text_1 is required"),
+  text_2: z.string().trim().min(1, "text_2 is required"),
+  text_3: z.string().trim().min(1, "text_3 is required"),
+});
+
 const createCourseSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(100),
   subtitle: z.string().trim().max(100),
@@ -76,6 +83,7 @@ const updateLessonContentSchema = z.object({
 
 module.exports = {
   attemptIdSchema,
+  completeLessonSchema,
   courseIdSchema,
   lessonIdSchema,
   courseLessonParamsSchema,

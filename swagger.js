@@ -11,13 +11,13 @@ const options = {
     },
     servers: [
       {
-        url: "v",
-        description: "Cloudflare Tunnel",
-      },
-      {
         url: "http://localhost:3001",
         description: "Development server",
       },
+      {
+        url: "https://foto-ict-interval-great.trycloudflare.com   ",
+        description: "Cloudflare Tunnel",
+      }
     ],
 
     components: {

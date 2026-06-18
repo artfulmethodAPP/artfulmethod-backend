@@ -6,6 +6,7 @@ const courseImageUploadS3 = require("../middlewares/course-image-s3.middleware")
 const courseAudioUpload = require("../middlewares/course-audio.middleware");
 const {
   attemptIdSchema,
+  completeLessonSchema,
   courseIdSchema,
   lessonIdSchema,
   courseLessonParamsSchema,
@@ -25,6 +26,7 @@ const {
   getLessons,
   updateLesson,
   startLesson,
+  transcribeLessonPrompts,
   completeLesson,
   getLessonReport,
   getCourseReport,
@@ -1163,8 +1165,72 @@ router.put(
  *       409:
  *         description: Lesson already completed
  */
+/**
+ * @swagger
+ * /api/v1/courses/attempts/{attemptId}/transcribe:
+ *   post:
+ *     summary: Transcribe a lesson's 3 prompts (step 1 of 2)
+ *     description: |
+ *       Transcribes the 3 prompt responses and returns the transcripts for the
+ *       "edit your transcript" screen. **Each prompt is independent** — send an
+ *       audio file or plain text per prompt, in any combination.
+ *
+ *       Always send as **`multipart/form-data`**. For each prompt N (1, 2, 3):
+ *       - `audio_N` as a **binary file** → transcribed via ElevenLabs, audio stored to S3
+ *       - OR `text_N` as a **plain text field** → used directly
+ *
+ *       This does NOT generate the report — call `/complete` with the final
+ *       (edited) transcripts afterwards. Splitting the slow transcription off the
+ *       report request avoids gateway timeouts.
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: attemptId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               audio_1:
+ *                 type: string
+ *                 format: binary
+ *                 description: Audio for prompt 1 (or send text_1 instead)
+ *               text_1:
+ *                 type: string
+ *                 description: Text for prompt 1 (or send audio_1 instead)
+ *               audio_2:
+ *                 type: string
+ *                 format: binary
+ *                 description: Audio for prompt 2 (or send text_2 instead)
+ *               text_2:
+ *                 type: string
+ *                 description: Text for prompt 2 (or send audio_2 instead)
+ *               audio_3:
+ *                 type: string
+ *                 format: binary
+ *                 description: Audio for prompt 3 (or send text_3 instead)
+ *               text_3:
+ *                 type: string
+ *                 description: Text for prompt 3 (or send audio_3 instead)
+ *     responses:
+ *       200:
+ *         description: Prompts transcribed; returns transcripts to review/edit
+ *       400:
+ *         description: A prompt is missing both audio and text
+ *       404:
+ *         description: Attempt not found
+ *       409:
+ *         description: Lesson already completed
+ */
 router.post(
-  "/attempts/:attemptId/complete",
+  "/attempts/:attemptId/transcribe",
   authenticate,
   validate(attemptIdSchema, "params"),
   courseAudioUpload.fields([
@@ -1172,6 +1238,55 @@ router.post(
     { name: "audio_2", maxCount: 1 },
     { name: "audio_3", maxCount: 1 },
   ]),
+  transcribeLessonPrompts,
+);
+
+/**
+ * @swagger
+ * /api/v1/courses/attempts/{attemptId}/complete:
+ *   post:
+ *     summary: Complete a lesson — submit final transcripts, generate report (step 2 of 2)
+ *     description: |
+ *       Submit the 3 final (possibly edited) transcripts as text. Runs the Session
+ *       Read archetype analysis and returns the micro-report. **No audio here** —
+ *       transcription happens in the separate `/transcribe` step.
+ *
+ *       Send as JSON (or form fields): `text_1`, `text_2`, `text_3` — all required.
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: attemptId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [text_1, text_2, text_3]
+ *             properties:
+ *               text_1: { type: string }
+ *               text_2: { type: string }
+ *               text_3: { type: string }
+ *     responses:
+ *       200:
+ *         description: Lesson completed and report generated
+ *       400:
+ *         description: A transcript is missing
+ *       404:
+ *         description: Attempt not found
+ *       409:
+ *         description: Lesson already completed
+ */
+router.post(
+  "/attempts/:attemptId/complete",
+  authenticate,
+  validate(attemptIdSchema, "params"),
+  validate(completeLessonSchema, "body"),
   completeLesson,
 );
 
