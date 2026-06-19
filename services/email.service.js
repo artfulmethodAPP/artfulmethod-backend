@@ -207,4 +207,99 @@ const sendCourseReportEmail = async ({ userId, email, courseName, pdfBuffer }) =
   }
 };
 
-module.exports = { sendOTPEmail, sendResetPasswordLinkEmail, sendArchetypeReportEmail, sendCourseReportEmail };
+// ─── Contact / "Get in touch" email to the support inbox ──────────────────────
+
+const sendContactEmail = async ({ userId, fromName, fromEmail, message }) => {
+  const to = process.env.SUPPORT_EMAIL || FROM_ADDRESS;
+  const displayName = fromName || fromEmail || `User #${userId}`;
+  const subject = `Get in touch — ${displayName}`;
+
+  // Escape user-supplied values so they can't inject markup into the email.
+  const esc = (s) =>
+    String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+  const initial = (fromName || fromEmail || "U").trim().charAt(0).toUpperCase();
+  const sentAt = new Date().toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+
+  try {
+    await transporter.sendMail({
+      from: FROM_ADDRESS,
+      to,
+      replyTo: fromEmail || undefined,
+      subject,
+      html: `
+        <div style="background:#f4f4f5; padding:24px 0; font-family:Arial, Helvetica, sans-serif;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; margin:0 auto;">
+            <tr>
+              <td style="background:#1A1A1A; padding:24px 32px; border-radius:12px 12px 0 0;">
+                <p style="margin:0; color:#fff; font-size:12px; letter-spacing:2px; text-transform:uppercase; opacity:.6;">Artful Method</p>
+                <h1 style="margin:6px 0 0; color:#fff; font-size:20px; font-weight:700;">New "Get in touch" message</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#fff; padding:28px 32px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%; margin-bottom:20px;">
+                  <tr>
+                    <td style="width:44px; vertical-align:top;">
+                      <div style="width:40px; height:40px; border-radius:50%; background:#1A1A1A; color:#fff; font-size:16px; font-weight:700; text-align:center; line-height:40px;">${esc(initial)}</div>
+                    </td>
+                    <td style="vertical-align:top; padding-left:12px;">
+                      <p style="margin:0; font-size:15px; font-weight:700; color:#111;">${esc(fromName || "—")}</p>
+                      <p style="margin:2px 0 0; font-size:13px; color:#666;">
+                        <a href="mailto:${esc(fromEmail || "")}" style="color:#666; text-decoration:none;">${esc(fromEmail || "no email")}</a>
+                        &nbsp;·&nbsp; User #${esc(userId)}
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0 0 8px; font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#999;">Message</p>
+                <div style="font-size:15px; line-height:1.6; color:#111; background:#f7f7f8; border-left:3px solid #1A1A1A; border-radius:6px; padding:16px 18px; white-space:pre-wrap;">${esc(message)}</div>
+
+                <p style="margin:20px 0 0; font-size:13px; color:#444;">
+                  Reply directly to ${esc(fromEmail || "this email")} to respond to ${esc(fromName || "the user")}.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#fff; padding:0 32px 24px; border-radius:0 0 12px 12px;">
+                <hr style="border:none; border-top:1px solid #eee; margin:0 0 14px;" />
+                <p style="margin:0; font-size:11px; color:#aaa;">Received ${esc(sentAt)} · © ${new Date().getFullYear()} Artful Method</p>
+              </td>
+            </tr>
+          </table>
+        </div>
+      `,
+    });
+
+    await EmailLog.create({
+      user_id: userId,
+      email: to,
+      email_type: "contact",
+      subject,
+      status: "sent",
+      sent_at: new Date(),
+    }).catch(() => {});
+  } catch (error) {
+    console.error("[sendContactEmail] error:", error.message);
+    await EmailLog.create({
+      user_id: userId,
+      email: to,
+      email_type: "contact",
+      subject,
+      status: "failed",
+      error_message: error.message,
+      sent_at: new Date(),
+    }).catch(() => {});
+    // Non-fatal: the message is already saved to the user's feedback, so the
+    // request still succeeds even if the support email fails to send.
+  }
+};
+
+module.exports = { sendOTPEmail, sendResetPasswordLinkEmail, sendArchetypeReportEmail, sendCourseReportEmail, sendContactEmail };

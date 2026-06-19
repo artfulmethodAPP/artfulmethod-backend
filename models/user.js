@@ -90,6 +90,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: true,
       },
+      feedback: {
+        // "Get in touch" submissions: array of { message, time }. Empty when none.
+        type: DataTypes.JSON,
+        allowNull: false,
+        defaultValue: [],
+      },
       deleted_at: {
         type: DataTypes.DATE,
         allowNull: true,

@@ -23,7 +23,7 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       email_type: {
-        type: DataTypes.ENUM("forgot-password", "report", "welcome", "otp"),
+        type: DataTypes.ENUM("forgot-password", "report", "welcome", "otp", "contact"),
         allowNull: false,
       },
       subject: {
