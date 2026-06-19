@@ -11,7 +11,8 @@ const { submitContactMessage } = require("../services/support.service");
 const contact = asyncHandler(async (req, res) => {
   const result = await submitContactMessage(req.user.id, req.body.message);
   return sendSuccess(res, {
-    message: "Thanks, we've received your message!",
+    message:
+      "Thanks you, we’ve received your message! We may follow up by email",
     data: result,
   });
 });
