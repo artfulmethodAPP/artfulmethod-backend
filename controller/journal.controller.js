@@ -7,6 +7,7 @@ const {
   getJournalEntries,
   getJournalEntryById,
   updateEntryPromptResponses,
+  deleteEntry,
 } = require("../services/journal.service");
 
 /**
@@ -47,4 +48,15 @@ const updateEntry = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { listEntries, getEntry, updateEntry };
+/**
+ * DELETE /api/v1/journal/entries/:id
+ */
+const removeEntry = asyncHandler(async (req, res) => {
+  const deleted = await deleteEntry(req.user.id, req.params.id);
+  return sendSuccess(res, {
+    message: "Journal entry deleted successfully",
+    data: deleted,
+  });
+});
+
+module.exports = { listEntries, getEntry, updateEntry, removeEntry };

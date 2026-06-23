@@ -3,7 +3,7 @@
 const express = require("express");
 const authenticate = require("../middlewares/authenticate.middleware");
 const validate = require("../middlewares/validate");
-const { listEntries, getEntry, updateEntry } = require("../controller/journal.controller");
+const { listEntries, getEntry, updateEntry, removeEntry } = require("../controller/journal.controller");
 const {
   entryIdParamSchema,
   updatePromptResponsesSchema,
@@ -161,6 +161,41 @@ router.patch(
   validate(entryIdParamSchema, "params"),
   validate(updatePromptResponsesSchema),
   updateEntry,
+);
+
+/**
+ * @swagger
+ * /api/v1/journal/entries/{id}:
+ *   delete:
+ *     summary: Soft-delete a journal entry
+ *     description: |
+ *       Soft-deletes the entry (a completed lesson attempt) so it disappears from
+ *       the user's journal. The attempt itself is preserved — course progress,
+ *       streaks, perception, the Growth in Range course report, and the sequential
+ *       lesson-unlock chain are all unaffected. This action is not reversible from
+ *       the app.
+ *     tags: [Journal]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: UserLessonAttempt ID
+ *     responses:
+ *       200:
+ *         description: Journal entry deleted successfully
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Entry not found, not completed, or already deleted
+ */
+router.delete(
+  "/entries/:id",
+  validate(entryIdParamSchema, "params"),
+  removeEntry,
 );
 
 module.exports = router;

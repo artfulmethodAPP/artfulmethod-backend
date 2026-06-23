@@ -1173,6 +1173,7 @@ router.put(
  *       409:
  *         description: Lesson already completed
  */
+
 /**
  * @swagger
  * /api/v1/courses/attempts/{attemptId}/transcribe:

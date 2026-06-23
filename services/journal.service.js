@@ -10,7 +10,7 @@ const AppError = require("../utils/app-error");
  */
 const getJournalEntries = async (userId) => {
   const attempts = await UserLessonAttempt.findAll({
-    where: { user_id: userId, status: "completed" },
+    where: { user_id: userId, status: "completed", deleted_at: null },
     order: [["completed_at", "DESC"]],
     include: [
       {
@@ -66,7 +66,7 @@ const getJournalEntries = async (userId) => {
  */
 const getJournalEntryById = async (userId, entryId) => {
   const attempt = await UserLessonAttempt.findOne({
-    where: { id: entryId, user_id: userId, status: "completed" },
+    where: { id: entryId, user_id: userId, status: "completed", deleted_at: null },
     include: [
       {
         model: CourseLesson,
@@ -123,7 +123,7 @@ const getJournalEntryById = async (userId, entryId) => {
  */
 const updateEntryPromptResponses = async (userId, entryId, promptResponses) => {
   const attempt = await UserLessonAttempt.findOne({
-    where: { id: entryId, user_id: userId, status: "completed" },
+    where: { id: entryId, user_id: userId, status: "completed", deleted_at: null },
     attributes: ["id"],
   });
 
@@ -174,4 +174,30 @@ const updateEntryPromptResponses = async (userId, entryId, promptResponses) => {
   }));
 };
 
-module.exports = { getJournalEntries, getJournalEntryById, updateEntryPromptResponses };
+/**
+ * Soft-deletes a single journal entry for the authenticated user.
+ * Sets deleted_at on the UserLessonAttempt so it disappears from the journal,
+ * while leaving the attempt intact for course progress, streaks, perception,
+ * the GiR course report, and the sequential lesson-unlock chain.
+ */
+const deleteEntry = async (userId, entryId) => {
+  const attempt = await UserLessonAttempt.findOne({
+    where: { id: entryId, user_id: userId, status: "completed", deleted_at: null },
+    attributes: ["id"],
+  });
+
+  if (!attempt) {
+    throw new AppError("Journal entry not found", 404, "NOT_FOUND");
+  }
+
+  await attempt.update({ deleted_at: new Date() });
+
+  return { id: attempt.id };
+};
+
+module.exports = {
+  getJournalEntries,
+  getJournalEntryById,
+  updateEntryPromptResponses,
+  deleteEntry,
+};

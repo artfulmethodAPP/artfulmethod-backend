@@ -135,8 +135,6 @@ const register = async ({
     otp_expires_at,
   });
 
-  // Fire-and-forget (see revive path above) — response returns as soon as the
-  // user row is created; email delivery happens in the background.
   sendOTPEmail(email, otp_code, user.id).catch((err) =>
     console.error("[register] background OTP email failed:", err.message),
   );
@@ -171,8 +169,6 @@ const resendOTP = async ({ email }) => {
 
   await user.update({ otp_code, otp_expires_at });
 
-  // Fire-and-forget (see register) — response returns immediately; the .catch()
-  // prevents a failed send from becoming an unhandled rejection.
   sendOTPEmail(email, otp_code, user.id).catch((err) =>
     console.error("[resendOTP] background OTP email failed:", err.message),
   );
@@ -371,7 +367,7 @@ const resetPassword = async ({ token, newPassword }) => {
 
 const generateAuthTokens = async (user) => {
   const accessToken = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, {
-    expiresIn: "1h",
+    expiresIn: "1h", 
   });
 
   const refreshToken = jwt.sign({ id: user.id }, JWT_REFRESH_SECRET, {

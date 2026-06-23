@@ -1202,59 +1202,94 @@ const getArchetypePerceptionReport = async (userId, archetype) => {
 const getHomeDashboard = async (userId) => {
   const { UserPromptResponse } = require("../models");
 
-  const [user, sessionsCompleted, modesExplored, reflectionSessions, aiReport] = await Promise.all([
+  const [
+    user,
+    sessionsCompleted,
+    completedAttempts,
+    onboardingReports,
+    lessonReflections,
+    aiReport,
+    totalActiveCourses,
+    completedCourses,
+  ] = await Promise.all([
     User.findByPk(userId, {
       attributes: ["id", "name", "streak_count", "longest_streak", "last_activity_date"],
     }),
     UserLessonAttempt.count({
       where: { user_id: userId, status: "completed" },
     }),
-    // Modes explored — distinct courses (archetype "modes") the user has attempted.
-    UserLessonAttempt.count({
-      where: { user_id: userId },
-      distinct: true,
-      col: "course_id",
+    UserLessonAttempt.findAll({
+      where: { user_id: userId, status: "completed" },
+      attributes: ["report_json"],
     }),
-    // Reflection sessions — one per lesson session that has prompt responses.
-    // A session stores 3 prompt responses; we count the distinct session, not
-    // the individual rows, so one lesson counts as one reflection (not three).
+    AiReport.findAll({
+      where: { user_id: userId },
+      attributes: ["report_json"],
+    }),
     UserPromptResponse.count({
-      distinct: true,
-      col: "user_lesson_attempt_id",
       include: [
         {
           model: UserLessonAttempt,
           attributes: [],
-          where: { user_id: userId },
+          where: { user_id: userId, status: "completed" },
           required: true,
         },
       ],
     }),
-    // paranoid: false so soft-deleted reports are still seen here — the
-    // assessment can be "completed" even if the user later deleted the report.
     AiReport.findOne({
       where: { user_id: userId },
       attributes: ["id", "deleted_at"],
       order: [["created_at", "DESC"]],
       paranoid: false,
     }),
+    // All-courses-completed flag: total active courses vs how many the user has
+    // a "completed" progress row for (joined to active courses so a completed
+    // course that was later deactivated can't falsely satisfy the check).
+    Course.count({ where: { is_active: true } }),
+    UserCourseProgress.count({
+      where: { user_id: userId, status: "completed" },
+      include: [
+        {
+          model: Course,
+          attributes: [],
+          where: { is_active: true },
+          required: true,
+        },
+      ],
+    }),
   ]);
 
   if (!user) throw new AppError("User not found", 404, "NOT_FOUND");
 
-  // The assessment counts as completed if a report was ever generated, even if
-  // it has since been soft-deleted. A deleted report is just no longer viewable.
   const assessmentCompleted = !!aiReport;
   const reportDeleted = !!(aiReport && aiReport.deleted_at);
 
-  // Reflections saved — one per lesson reflection session, plus the free
-  // assessment reflection (the archetype report) if the user has completed it.
-  const reflectionsSaved = reflectionSessions + (assessmentCompleted ? 1 : 0);
+  const reflectionsSaved =
+    lessonReflections + (assessmentCompleted && !reportDeleted ? 1 : 0);
+
+  const exploredModes = new Set();
+  for (const a of completedAttempts) {
+    const name = a.report_json?.archetype?.name;
+    if (VALID_ARCHETYPES.includes(name)) exploredModes.add(name);
+  }
+  for (const r of onboardingReports) {
+    const name = r.report_json?.archetype?.name;
+    if (VALID_ARCHETYPES.includes(name)) exploredModes.add(name);
+  }
+  const modesExplored = exploredModes.size;
+
+  const perceptionLevel = Math.round(
+    (modesExplored / VALID_ARCHETYPES.length) * 100,
+  );
+
+  // True only when at least one course exists AND the user has completed every
+  // active course. False while any active course is unfinished.
+  const allCoursesCompleted =
+    totalActiveCourses > 0 && completedCourses >= totalActiveCourses;
 
   return {
     name: user.name,
     assessment_completed: assessmentCompleted,
-    // Only expose an id the user can open; deleted reports return null.
     assessment_report_id: aiReport && !aiReport.deleted_at ? aiReport.id : null,
     assessment_report_deleted: reportDeleted,
     assessment_report_message: reportDeleted
@@ -1264,8 +1299,10 @@ const getHomeDashboard = async (userId) => {
     longest_streak: user.longest_streak,
     last_activity_date: user.last_activity_date,
     sessions_completed: sessionsCompleted,
+    perception_level: perceptionLevel,
     modes_explored: modesExplored,
     reflections_saved: reflectionsSaved,
+    all_courses_completed: allCoursesCompleted,
   };
 };
 
