@@ -253,7 +253,7 @@ router.get("/", authenticate, getAllCourses);
  * /api/v1/courses/home:
  *   get:
  *     summary: Get home dashboard data
- *     description: Returns the user's name, current streak, longest streak, last activity date, and total sessions completed.
+ *     description: Returns the user's name, current streak, longest streak, last activity date, total sessions completed, modes explored, and reflections saved.
  *     tags: [Courses]
  *     security:
  *       - bearerAuth: []
@@ -288,6 +288,14 @@ router.get("/", authenticate, getAllCourses);
  *                     sessions_completed:
  *                       type: integer
  *                       example: 8
+ *                     modes_explored:
+ *                       type: integer
+ *                       description: Distinct courses (archetype modes) the user has attempted
+ *                       example: 3
+ *                     reflections_saved:
+ *                       type: integer
+ *                       description: One per lesson reflection session, plus the free assessment reflection if completed
+ *                       example: 9
  *       401:
  *         description: Unauthorized
  */

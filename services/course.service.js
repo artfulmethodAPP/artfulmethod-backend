@@ -1200,12 +1200,35 @@ const getArchetypePerceptionReport = async (userId, archetype) => {
 // ─── Home Dashboard ───────────────────────────────────────────────────────────
 
 const getHomeDashboard = async (userId) => {
-  const [user, sessionsCompleted, aiReport] = await Promise.all([
+  const { UserPromptResponse } = require("../models");
+
+  const [user, sessionsCompleted, modesExplored, reflectionSessions, aiReport] = await Promise.all([
     User.findByPk(userId, {
       attributes: ["id", "name", "streak_count", "longest_streak", "last_activity_date"],
     }),
     UserLessonAttempt.count({
       where: { user_id: userId, status: "completed" },
+    }),
+    // Modes explored — distinct courses (archetype "modes") the user has attempted.
+    UserLessonAttempt.count({
+      where: { user_id: userId },
+      distinct: true,
+      col: "course_id",
+    }),
+    // Reflection sessions — one per lesson session that has prompt responses.
+    // A session stores 3 prompt responses; we count the distinct session, not
+    // the individual rows, so one lesson counts as one reflection (not three).
+    UserPromptResponse.count({
+      distinct: true,
+      col: "user_lesson_attempt_id",
+      include: [
+        {
+          model: UserLessonAttempt,
+          attributes: [],
+          where: { user_id: userId },
+          required: true,
+        },
+      ],
     }),
     // paranoid: false so soft-deleted reports are still seen here — the
     // assessment can be "completed" even if the user later deleted the report.
@@ -1224,6 +1247,10 @@ const getHomeDashboard = async (userId) => {
   const assessmentCompleted = !!aiReport;
   const reportDeleted = !!(aiReport && aiReport.deleted_at);
 
+  // Reflections saved — one per lesson reflection session, plus the free
+  // assessment reflection (the archetype report) if the user has completed it.
+  const reflectionsSaved = reflectionSessions + (assessmentCompleted ? 1 : 0);
+
   return {
     name: user.name,
     assessment_completed: assessmentCompleted,
@@ -1237,6 +1264,8 @@ const getHomeDashboard = async (userId) => {
     longest_streak: user.longest_streak,
     last_activity_date: user.last_activity_date,
     sessions_completed: sessionsCompleted,
+    modes_explored: modesExplored,
+    reflections_saved: reflectionsSaved,
   };
 };
 
