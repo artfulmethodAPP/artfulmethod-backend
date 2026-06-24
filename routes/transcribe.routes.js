@@ -22,7 +22,7 @@ const router = express.Router();
 /**
  * @swagger
  * /api/v1/transcribe/save:
- *   post:
+ *   patch:
  *     summary: Save or update a transcript
  *     description: |
  *       Two flows:
@@ -86,7 +86,7 @@ const router = express.Router();
  *       404:
  *         description: Transcript not found (when transcript_id is provided but does not exist)
  */
-router.post("/save", authenticate, validate(saveTranscriptSchema), saveTranscript);
+router.patch("/save", authenticate, validate(saveTranscriptSchema), saveTranscript);
 
 /**
  * @swagger
