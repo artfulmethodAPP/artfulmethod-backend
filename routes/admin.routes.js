@@ -10,6 +10,7 @@ const {
   getUserLessonReports,
   getUserTranscripts,
   getUserAudios,
+  hardDeleteUser,
   uploadImage,
   getPresignedImageUrl,
   uploadMediaImage,
@@ -511,6 +512,63 @@ router.get("/users/:userId/transcripts", authenticate, isAdmin, getUserTranscrip
  *         description: User not found
  */
 router.get("/users/:userId/audios", authenticate, isAdmin, getUserAudios);
+
+// ─── Hard Delete User ─────────────────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/v1/admin/users/{userId}:
+ *   delete:
+ *     summary: Permanently delete a user and all their data (Admin)
+ *     description: |
+ *       Hard-deletes the user and ALL related records (tokens, tasks, task attempts,
+ *       audio transcripts, email logs, archetypes created by the user, course progress,
+ *       lesson attempts, and prompt responses) in a single transaction.
+ *       This is irreversible — there is no soft-delete fallback.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID of the user to permanently delete
+ *     responses:
+ *       200:
+ *         description: User permanently deleted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "User permanently deleted"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       example: 1
+ *                     name:
+ *                       type: string
+ *                       example: "Jane Smith"
+ *                     email:
+ *                       type: string
+ *                       example: "jane@example.com"
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin only
+ *       404:
+ *         description: User not found
+ */
+router.delete("/users/:userId", hardDeleteUser);
 
 // ─── Image Upload (course/report artwork) ─────────────────────────────────────
 

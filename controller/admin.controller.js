@@ -51,6 +51,15 @@ const getUserAudios = asyncHandler(async (req, res) => {
   });
 });
 
+const hardDeleteUser = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const result = await AdminService.hardDeleteUser(userId);
+  return sendSuccess(res, {
+    message: "User permanently deleted",
+    data: result,
+  });
+});
+
 // ─── Image upload (course/report artwork — returns S3 key) ────────────────────
 
 const uploadImage = asyncHandler(async (req, res) => {
@@ -116,6 +125,7 @@ module.exports = {
   getUserLessonReports,
   getUserTranscripts,
   getUserAudios,
+  hardDeleteUser,
   uploadImage,
   getPresignedImageUrl,
   uploadMediaImage,

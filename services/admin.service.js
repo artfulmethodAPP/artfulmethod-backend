@@ -2,6 +2,7 @@
 
 const { Op } = require("sequelize");
 const {
+  sequelize,
   User,
   Course,
   CourseLesson,
@@ -9,6 +10,11 @@ const {
   UserLessonAttempt,
   UserPromptResponse,
   AudioTranscript,
+  UserToken,
+  Task,
+  TaskAttempt,
+  EmailLog,
+  Archetype,
 } = require("../models");
 const AppError = require("../utils/app-error");
 const {
@@ -467,10 +473,64 @@ const getUserAudios = async (userId) => {
   return { onboarding_audio, lesson_audios };
 };
 
+// ─── 6. Hard Delete User ─────────────────────────────────────────────────────
+
+// Permanently removes a user and ALL of their related data from the database.
+// This is irreversible — there is no soft-delete fallback here.
+const hardDeleteUser = async (userId) => {
+  const user = await User.findByPk(userId, {
+    attributes: ["id", "name", "email"],
+  });
+
+  if (!user) {
+    throw new AppError("User not found", 404, "USER_NOT_FOUND");
+  }
+
+  await sequelize.transaction(async (t) => {
+    // Prompt responses live under lesson attempts (not directly on user),
+    // so collect this user's attempt ids first and delete their children.
+    const attempts = await UserLessonAttempt.findAll({
+      where: { user_id: userId },
+      attributes: ["id"],
+      transaction: t,
+    });
+    const attemptIds = attempts.map((a) => a.id);
+
+    if (attemptIds.length > 0) {
+      await UserPromptResponse.destroy({
+        where: { user_lesson_attempt_id: attemptIds },
+        transaction: t,
+      });
+    }
+
+    // Direct child records (all keyed by user_id, except Archetype.created_by).
+    await Promise.all([
+      UserLessonAttempt.destroy({ where: { user_id: userId }, transaction: t }),
+      UserCourseProgress.destroy({ where: { user_id: userId }, transaction: t }),
+      UserToken.destroy({ where: { user_id: userId }, transaction: t }),
+      Task.destroy({ where: { user_id: userId }, transaction: t }),
+      TaskAttempt.destroy({ where: { user_id: userId }, transaction: t }),
+      AudioTranscript.destroy({ where: { user_id: userId }, transaction: t }),
+      EmailLog.destroy({ where: { user_id: userId }, transaction: t }),
+      Archetype.destroy({ where: { created_by: userId }, transaction: t }),
+    ]);
+
+    // Finally the user row itself.
+    await User.destroy({ where: { id: userId }, transaction: t });
+  });
+
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+  };
+};
+
 module.exports = {
   getUsers,
   getUserDetail,
   getUserLessonReports,
   getUserTranscripts,
   getUserAudios,
+  hardDeleteUser,
 };
